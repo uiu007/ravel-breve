@@ -25,7 +25,7 @@
 | REQ-03 | 引号块是嵌套波兰式，延迟代码；括号不参与镜像 | ✅ | `conformance/req-03-quote.janet` |
 | REQ-04 | 换行终结、`\` 续行、未闭合块自动续行 | ✅ | `conformance/req-04-terminator.janet`、`unit/lexer.janet` |
 | REQ-05 | 定义行 `:`；`=` 专表相等；`= 3 3` → true，`3 3 =` → 30 | ✅ | `conformance/req-05-definition.janet`、`req-01-notation.janet` |
-| REQ-30 | 数据栈 fiber-local，不在宿主全局共享 | ✅ | `conformance/req-30-stack-isolation.janet`、`e2e/cli.sh`（--serve 逐请求隔离） |
+| REQ-30 | 只区分“临时值”与“工作区状态”；并发在流层（非求值层） | ✅（实现层） | `conformance/req-30-stack-isolation.janet`（fiber-local env 作为实现手段） |
 | REQ-31 | 每词 = 一次栈操作调用，按反转序排列、可 dump | ✅ | `conformance/req-01-notation.janet`（与规格示例逐字比对） |
 | REQ-32 | `[ ]` 压栈即数据，仅由组合子触发 | ✅ | `conformance/req-03-quote.janet` |
 | REQ-33 | 定义行是元层，装载期注册进字典 | ✅ | `conformance/req-05-definition.janet` |
@@ -53,7 +53,7 @@
 | REQ-15 | 广播可带域（含 `*`/`?` 通配） | ⏳ M3 | |
 | REQ-16 | 钩子注册/注销 `@on`/`@off` | ⏳ M3 | |
 | REQ-17 | 8 个事件名 | ⏳ M3 | |
-| REQ-18 | 默认回合收尾钩子（@RoundDone）四步时序 | ⏳ M3 | |
+| REQ-18 | 默认回合收尾钩子（@RoundDone）逐 stream 四步：解析绑定→转 utter→append→退订/删 stream | ⏳ M3 | |
 | REQ-19 | `@off @RoundDone` 可禁用 | ⏳ M3 | |
 | REQ-20 | 版本化 JSON 快照 + JSONL 增量日志 | ⏳ M4 | 格式待 CHK-4 冻结 |
 | REQ-21 | compact 三条件（0.5 倍 / 1000 条 / 显式） | ⏳ M4 | |
@@ -71,9 +71,11 @@
 | REQ-39 | `#` 至行末为注释 | ✅ | `unit/lexer.janet`（注释与空行） |
 | REQ-40 | 块内换行 = 语句分隔（逐语句镜像、语句间保持书写序） | ✅ | `conformance/req-03-quote.janet`、`unit/translate.janet` |
 | REQ-41 | 退出码具体取值（附录 E） | ✅ | `conformance/req-23-exit-codes.janet`、`e2e/cli.sh` |
-| REQ-42 | `--serve` 生命周期（每请求独立栈 / 字典全局 / 失败不终止 / EOF→0） | ✅ | `conformance/req-30-stack-isolation.janet`、`e2e/cli.sh` |
+| REQ-42 | `--serve` 边界：工作区状态可见 / 栈是前端策略 / 失败不终止 / EOF→0 | ✅ | `e2e/cli.sh` |
 | REQ-43 | NDJSON 最小 schema（附录 F） | ✅（最小集） | `e2e/cli.sh` |
 | REQ-44 | 字面量是数据、引号是代码（`{ }`/`H{ }` 不参与镜像） | ⏳ M2 | 待 M2 实现后补 `conformance/req-44-literal.janet` |
+| REQ-45 | 一轮 = `list Stream`；stream 携带标签绑定 | ⏳ M3 | 待 M3 实现后补 `conformance/req-45-round-streams.janet` |
+| REQ-46 | `Stream → Utter` 显式转换；自动/手动路径共用 | ⏳ M3 | 待 M3 实现后补 `conformance/req-46-utter.janet` |
 
 ## 附录 D：核心规模与禁止项
 

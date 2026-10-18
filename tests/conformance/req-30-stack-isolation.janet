@@ -1,4 +1,9 @@
-# tests/conformance/req-30-stack-isolation.janet —— REQ-30 fiber-local 数据栈
+# tests/conformance/req-30-stack-isolation.janet —— REQ-30：临时值 vs 工作区状态
+#
+# REQ-30（v1.0c）不要求“并发求值隔离栈”——那被视为过度分离：
+#   唯一持久状态 = 工作区（agent store + 字典）；数据栈只装临时值；并发在流层。
+# 本文件验证的是**实现手段**（fiber-local env）确实能把栈限定在单次求值内：
+#   每个求值一个 env（栈私有）→ 下次求值从空栈开始；显式复用 env 则跨次保留（REPL 语义）。
 
 (deftest "REQ-30：两次独立求值互不污染"
   (fn []

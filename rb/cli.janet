@@ -5,7 +5,7 @@
 # --serve 为 NDJSON over stdio 的 M0 骨架：每行一条 ravel 源码，
 #   回一行 JSON 结果；每个请求使用**独立栈环境**（REQ-30 验收）。
 
-(def rb/version-string "ravel breve 1.0b · janet 1.42.1")
+(def rb/version-string "ravel breve 1.0c · janet 1.42.1")
 
 (defn rb/cli-usage
   []

@@ -1,6 +1,9 @@
 # 符合性矩阵（REQ ↔ 测试）
 
+依据规格：**`ravel-breve-spec-v1.0c.md`**（修订定稿）；`ravel-breve-spec-v1.0b.md` 为历史原文。
 状态：**M0**（2026-xx）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+
+> 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-44**（见文末）。
 
 跑法：`make test`（单元 + 符合性 + 端到端 + 附录 D）。
 
@@ -17,11 +20,11 @@
 
 | REQ | 内容 | 状态 | 测试 |
 |---|---|---|---|
-| REQ-01 | 一行内 RTL 求值，操作符在左 | ✅ | `conformance/req-01-notation.janet` |
-| REQ-02 | 镜像原理（切词→反转→换名→宿主求值，无 VM） | ✅ | `conformance/req-01-notation.janet`、`unit/translate.janet` |
-| REQ-03 | 引号块内同样 RTL，括号不参与反转 | ✅ | `conformance/req-03-quote.janet` |
+| REQ-01 | 语法为波兰（前缀）表达式：`词 实参…`，词在左 | ✅ | `conformance/req-01-notation.janet` |
+| REQ-02 | 类 Forth 执行 + 前缀→后置转换（镜像），无 VM | ✅ | `conformance/req-01-notation.janet`、`unit/translate.janet` |
+| REQ-03 | 引号块是嵌套波兰式，延迟代码；括号不参与镜像 | ✅ | `conformance/req-03-quote.janet` |
 | REQ-04 | 换行终结、`\` 续行、未闭合块自动续行 | ✅ | `conformance/req-04-terminator.janet`、`unit/lexer.janet` |
-| REQ-05 | 定义行 `:`；`=` 专表相等 | ✅ | `conformance/req-05-definition.janet` |
+| REQ-05 | 定义行 `:`；`=` 专表相等；`= 3 3` → true，`3 3 =` → 30 | ✅ | `conformance/req-05-definition.janet`、`req-01-notation.janet` |
 | REQ-30 | 数据栈 fiber-local，不在宿主全局共享 | ✅ | `conformance/req-30-stack-isolation.janet`、`e2e/cli.sh`（--serve 逐请求隔离） |
 | REQ-31 | 每词 = 一次栈操作调用，按反转序排列、可 dump | ✅ | `conformance/req-01-notation.janet`（与规格示例逐字比对） |
 | REQ-32 | `[ ]` 压栈即数据，仅由组合子触发 | ✅ | `conformance/req-03-quote.janet` |
@@ -60,6 +63,17 @@
 | REQ-28 | `show` 普通打印；`watch` 语法糖 | ⏳ M5 | |
 | REQ-29 | 按键 `t`/`s`/`c` | ⏳ M7 | 前端（Emacs 优先） |
 | REQ-36 | Stream ≡ fiber，chunk 一次 yield | ⏳ M3 | |
+
+## v1.0c 新增 REQ（39–44）
+
+| REQ | 内容 | 状态 | 测试 |
+|---|---|---|---|
+| REQ-39 | `#` 至行末为注释 | ✅ | `unit/lexer.janet`（注释与空行） |
+| REQ-40 | 块内换行 = 语句分隔（逐语句镜像、语句间保持书写序） | ✅ | `conformance/req-03-quote.janet`、`unit/translate.janet` |
+| REQ-41 | 退出码具体取值（附录 E） | ✅ | `conformance/req-23-exit-codes.janet`、`e2e/cli.sh` |
+| REQ-42 | `--serve` 生命周期（每请求独立栈 / 字典全局 / 失败不终止 / EOF→0） | ✅ | `conformance/req-30-stack-isolation.janet`、`e2e/cli.sh` |
+| REQ-43 | NDJSON 最小 schema（附录 F） | ✅（最小集） | `e2e/cli.sh` |
+| REQ-44 | 字面量是数据、引号是代码（`{ }`/`H{ }` 不参与镜像） | ⏳ M2 | 待 M2 实现后补 `conformance/req-44-literal.janet` |
 
 ## 附录 D：核心规模与禁止项
 

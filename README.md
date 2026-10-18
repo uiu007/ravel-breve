@@ -1,9 +1,10 @@
 # ravel breve
 
-自右向左（RTL）求值的栈式 **agent 会话编排方言**，宿主为 Janet 1.42.x（amalgamated，静态嵌入）。
+**波兰（前缀）式书写、类 Forth 栈机执行**的 **agent 会话编排方言**，宿主为 Janet 1.42.x（amalgamated，静态嵌入）。
 
 - 命令：`ravel`，脚本扩展名 `.breve`，提示符 `ravel> `
-- 规格：`ravel-breve-spec-v1.0b.md`（**只读**；修订提案写 `docs/SPEC-FEEDBACK.md`）
+- 规格（现行）：`ravel-breve-spec-v1.0c.md`；`ravel-breve-spec-v1.0b.md` 保留为历史（不删改）
+- 规格反馈（缺陷/留白）：`docs/SPEC-FEEDBACK.md`
 - 开发计划与检查点：`PLAN.md`
 
 ## 构建与验收
@@ -18,7 +19,7 @@ M0 验收（CHK-0）：
 
 ```sh
 make clean && make
-./bin/ravel -v                        # ravel breve 1.0b · janet 1.42.1
+./bin/ravel -v                        # ravel breve 1.0c · janet 1.42.1
 ./bin/ravel --dump -e 'take 2 "abcde"' # (do (rb/push "abcde") (rb/push 2) (rb/take))
 ./bin/ravel -e 'take 2 "abcde"'        # "ab"
 ```
@@ -37,16 +38,18 @@ ravel -v | -h
 ## 方言要点
 
 ```breve
-take 2 "abcde"        # ≡ "abcde" 2 take  →  "ab"
-- 5 3                 # ≡ 5 - 3          →  2
+take 2 "abcde"        # 读作 take(2, "abcde")  →  "ab"
+- 5 3                 # 读作 5 - 3            →  2
 = 3 3                 # →  true
+3 3 =                 # 非法波兰式（= 左侧无操作数）→ 栈下溢 30
 double : [ * 2 ]      # 定义行（元层，不参与镜像）
 double 5              # →  10
 apply [ * 2 ] 21      # 引号压栈即数据，由组合子触发 → 42
 ```
 
-规则：**写下的顺序 = 求值的顺序**（左 = 先消费 = 栈顶）。实现走**镜像原理**：
-`切词 → 递归反转 → 换名 → 宿主求值`，无字节码、无自研 VM（REQ-02）。
+规则：**语法 = 波兰（前缀）表达式；执行 = 类 Forth 栈机**。
+由此得**唯一方向规则**：**最左实参 = 第一个操作数 = 栈顶 = 先被消费**。
+实现走**镜像原理（前缀 → 后置转换）**：`切词 → 递归镜像 → 换名 → 宿主求值`，无字节码、无自研 VM（REQ-02）。
 
 ## 目录
 

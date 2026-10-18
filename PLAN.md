@@ -1,7 +1,7 @@
-# ravel breve 开发计划（v1.0b 规格 → 可运行实现）
+# ravel breve 开发计划（v1.0c 规格 → 可运行实现）
 
-> 依据：`ravel-breve-spec-v1.0b.md`（定稿）
-> 目标：把 Spec 的 REQ-01…REQ-38 逐条落成**可验收**的实现，全程保持「复杂度可见、可裁决」。
+> 依据：`ravel-breve-spec-v1.0c.md`（修订定稿，待 CHK-1 追认）；`ravel-breve-spec-v1.0b.md` 为历史原文。
+> 目标：把 Spec 的 REQ-01…REQ-44 逐条落成**可验收**的实现，全程保持「复杂度可见、可裁决」。
 > 本文件是开发契约：阶段划分、交付物、验收命令、**人工检查点（CHK）**、待裁决问题。
 
 ---
@@ -21,7 +21,8 @@
 
 ```
 RavelBreve/
-├── ravel-breve-spec-v1.0b.md      # 规格（只读；修订提案写 docs/SPEC-FEEDBACK.md）
+├── ravel-breve-spec-v1.0b.md      # 规格历史原文（只读）
+├── ravel-breve-spec-v1.0c.md      # 现行规格（修订定稿；反馈写 docs/SPEC-FEEDBACK.md）
 ├── PLAN.md                        # 本文件
 ├── Makefile                       # make / make test / make dist / make clean
 ├── vendor/janet/                  # janet 1.42.x amalgam（janet.c, janet.h, VERSION 钉死）

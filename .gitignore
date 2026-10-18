@@ -1,0 +1,8 @@
+# 构建产物
+build/
+bin/ravel
+*.jimage
+
+# 编辑器
+*.swp
+*~

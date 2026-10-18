@@ -1,0 +1,17 @@
+# ravel breve 内核装载顺序（= 静态嵌入顺序）
+# 以 cap/ 开头的行属于能力层，可被 --core-only 剔除（REQ-37 / 附录 D）
+rb/exit.janet
+rb/output.janet
+rb/runtime.janet
+rb/cap.janet
+rb/lexer.janet
+rb/dict.janet
+rb/translate.janet
+rb/words/l0.janet
+rb/words/l1.janet
+rb/words/l1b.janet
+rb/words/l5b.janet
+rb/eval.janet
+rb/cli.janet
+rb/init.janet
+cap/json.janet

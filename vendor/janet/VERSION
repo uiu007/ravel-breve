@@ -1,0 +1,11 @@
+# 宿主钉死记录（REQ-38）
+name        = janet
+version     = 1.42.1
+tag         = v1.42.1
+tag_commit  = e1963cdfe0148f83601907727e00bd672d798115
+build       = amalgamated (janet.c + janet.h, shell.c 仅作参考)
+source      = https://github.com/janet-lang/janet/releases/download/v1.42.1/
+sha256.janet.c = 8a0ba3d69df856ff5cb3880ffb7aac9af7d673035cb689835347383ded838537
+sha256.janet.h = 6c4e408524381128dcb1f765a8c302146a02c169214cca0c7b81361e2f0a1455
+sha256.shell.c = dbd05c7cc169c0e1bc031995d958ed1f6d0062b9bf6ae5b4c9b21b32fecff4c6
+upgrade_policy = 升级须显式评审并记入附录 B（REQ-38）

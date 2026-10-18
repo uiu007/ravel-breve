@@ -71,6 +71,7 @@
   [dump?]
   # 能力层走显式注册表（§4.11）：核心不静态依赖 cap/，剔除 cap/ 后仍可装载
   (def encode (rb/cap-get :json/encode))
+  (def env (rb/new-env)) # REQ-42：工作区（字典 + 栈）跨请求保留
   (var running true)
   (while running
     (def raw (getline ""))
@@ -80,7 +81,7 @@
         (def line (string/trimr (string raw)))
         (when (not (empty? line))
           (def r (try
-                   (rb/run-source line "<serve>")
+                   (rb/run-source line "<serve>" env)
                    ([e] {:ok false :error e :stack @[]})))
           (when dump?
             (eprintf "dump: %s\n" (get r :code "")))

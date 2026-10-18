@@ -1,10 +1,11 @@
 # rb/eval.janet —— 求值入口（REQ-30 / REQ-31）
 #
-# 一个求值 = 一个 fiber + 一个 fiber-local 数据栈环境。
+# 一个求值 = 一个 fiber + 一个环境；环境携带工作区的**栈（变量）**部分。
+# 字典（函数与常量）当前在 rb/dict 模块级（单一隐式工作区，M4 移入工作区）。
 # 转译产物是**可打印的宿主序文本**（REQ-31：可 dump / 可 log）。
 
 (defn rb/new-env
-  "新建一个求值环境：fiber-local 数据栈（REQ-30）。"
+  "新建一个工作区环境：自带一份数据栈（REQ-30：栈 = 工作区的变量空间）。"
   []
   (table/setproto @{:rb-stack @[]} (curenv)))
 
@@ -22,7 +23,7 @@
    :nstmt (length (p :stmts))})
 
 (defn rb/run-code
-  "执行转译后的宿主序文本。env 可复用（REPL 保持栈），缺省新建（并发隔离）。"
+  "执行转译后的宿主序文本。env 复用 = 同一个工作区（REQ-42）；缺省新建（一次性求值）。"
   [code &opt name env]
   (def ast (try
              (parse code)

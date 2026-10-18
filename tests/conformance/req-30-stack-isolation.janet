@@ -1,24 +1,25 @@
-# tests/conformance/req-30-stack-isolation.janet —— REQ-30：临时值 vs 工作区状态
+# tests/conformance/req-30-stack-isolation.janet —— REQ-30：工作区 = 字典 + 栈
 #
-# REQ-30（v1.0c）不要求“并发求值隔离栈”——那被视为过度分离：
-#   唯一持久状态 = 工作区（agent store + 字典）；数据栈只装临时值；并发在流层。
-# 本文件验证的是**实现手段**（fiber-local env）确实能把栈限定在单次求值内：
-#   每个求值一个 env（栈私有）→ 下次求值从空栈开始；显式复用 env 则跨次保留（REPL 语义）。
+# REQ-30（v1.0c）的定义：**工作区 = 字典绑定（函数与常量）+ 栈（变量）**。
+# 因此“栈是临时空间”“并发求值需隔离栈”都不是本规格的约束：
+#   栈就是工作区的变量空间；并发在流层（Stream ≡ fiber），不在求值层。
+# 本文件验证实现手段：一个 env 携带一份栈；**复用 env = 同一个工作区**，
+#   新 env = 新工作区。
 
-(deftest "REQ-30：两次独立求值互不污染"
+(deftest "REQ-30：两个独立工作区互不影响"
   (fn []
     (def a (rb/run-source "1 2" "a"))
     (def b (rb/run-source "3 4" "b"))
     (is= [2 1] (tup (a :stack)))
     (is= [4 3] (tup (b :stack)))))
 
-(deftest "REQ-30：交叉求值不串栈"
+(deftest "REQ-30：一个工作区的求值互不影响另一个工作区"
   (fn []
     (def a (rb/run-source "1" "a"))
     (rb/run-source "2" "b")
     (is= [1] (tup (a :stack)))))
 
-(deftest "REQ-30：显式复用 env 时栈跨次保留（REPL 语义）"
+(deftest "REQ-30：复用 env = 同一个工作区，栈（变量）跨次保留"
   (fn []
     (def env (rb/new-env))
     (rb/run-source "1" "r" env)
@@ -31,7 +32,7 @@
     (is (not (nil? (rb/env-get "rb/take" env))))
     (is (not (nil? (rb/env-get "rb/take"))))))
 
-(deftest "REQ-30：两个 env 的栈对象互不相同（不是共享全局）"
+(deftest "REQ-30：两个工作区的栈对象互不相同"
   (fn []
     (def a (rb/new-env))
     (def b (rb/new-env))

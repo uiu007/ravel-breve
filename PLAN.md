@@ -202,7 +202,7 @@ RavelBreve/
 | R3 | `Session` 写时复制（附录 C） | 大 session 性能 | M3 先语义正确，千条级实测；O(1) 方案延后 |
 | R4 | NDJSON 双向不阻塞需真正并发（fiber/ev） | 无法满足 REQ-24 | M5 用 duplex 测试作硬闸门 |
 | R5 | Janet 无内置 JSON；核心不得含 JSON 解析（附录 D） | 归属争议 | CHK-6 裁决；默认：核心只留词，实现走 provider |
-| R6 | fiber-local 栈的隔离在 `--serve` 多路 eval 下需验证 | 栈串扰 | M1 起就有并发栈隔离测试（REQ-30） |
+| R6 | 多工作区时字典需从模块级全局移入工作区对象（当前为单一隐式工作区） | 工作区串扰 | M4 落地 REQ-20 时重构 `rb/dict`；栈已按 env 隔离（REQ-30） |
 | R7 | Spec 中 ❓ / 未冻结项多 | 反复返工 | 集中在检查点裁决，先实现无争议部分 |
 | R8 | 父目录 `/home/uiu` 是 git 仓库且含坏 submodule | git 操作干扰 | RavelBreve 内独立 `git init`，所有操作限定子目录 |
 

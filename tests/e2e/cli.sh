@@ -54,12 +54,15 @@ check_rc "--serve" 0 bash -c "printf 'take 2 \"abcde\"\n' | $RAVEL --serve"
 check "--serve 返回 JSON" \
       '{"ok":true,"stack":["\"ab\""],"type":"result"}' \
       "$(printf 'take 2 "abcde"\n' | $RAVEL --serve | head -1)"
-check "--serve 首行栈独立（REQ-30）" \
+check "--serve 首行栈" \
       '{"ok":true,"stack":["1"],"type":"result"}' \
       "$(printf '1\n2\n' | $RAVEL --serve | head -1)"
-check "--serve 次行栈不累积（REQ-30）" \
-      '{"ok":true,"stack":["2"],"type":"result"}' \
+check "--serve 次行栈累积（REQ-42：栈是变量，跨请求保留）" \
+      '{"ok":true,"stack":["1","2"],"type":"result"}' \
       "$(printf '1\n2\n' | $RAVEL --serve | tail -1)"
+check "--serve 字典跨请求保留（REQ-42）" \
+      '{"ok":true,"stack":["42"],"type":"result"}' \
+      "$(printf 'f : [ * 2 ]\nf 21\n' | $RAVEL --serve | tail -1)"
 check "--serve 错误带退出码" \
       '{"code":20,"error":"未知的词：nope","ok":false,"type":"result"}' \
       "$(printf 'nope\n' | $RAVEL --serve | head -1)"

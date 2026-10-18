@@ -68,7 +68,8 @@ RavelBreve/
 - `Makefile`：`make` 产出 `bin/ravel`；`tools/embed.janet` 生成 `rb_bundle.c`（所有 `rb/**` 源码拼接 + `janet_dobytes`）。
 - `src/main.c`：解析 CLI 形态，退出码表骨架，NDJSON server 空实现（只回 `{"ok":true}`）。
 - `git init`（仓库内独立 git）+ 首次提交 + tag `m0`。
-**验收命令**：`make clean && make && ./bin/ravel -v && ./bin/ravel -e 'dump "1 2 +"'`
+**验收命令**：`make clean && make && make test && ./bin/ravel -v && ./bin/ravel --dump -e 'take 2 "abcde"' && ./bin/ravel -e 'take 2 "abcde"'`
+**CHK-0 评审材料**：`docs/CHK-0.md`（含实测输出与待裁决问题）
 **CHK-0 需裁决**
 1. 是否允许 vendor Janet 源码进仓库（体积 ~1.5MB）？或改为构建时下载 + 校验和？
 2. 是否在 `RavelBreve/` 内独立 `git init` 并按阶段打 tag？（父目录 `/home/uiu` 本身是 git 仓库，RavelBreve 未被跟踪）
@@ -85,11 +86,12 @@ RavelBreve/
 - `runtime.janet`：`(dyn :rb-stack)` fiber-local 栈 + `push/pop/dup/swap/rot/-rot/keep/dip/apply`。
 - `dict.janet`：注册/查询/文档串、`doc`/`see`、重定义**覆盖并告警**。
 - 引号压栈不求值，仅组合子触发（REQ-32）。
-**验收命令**：`make test -- --req 01..05,30..35`，含：
-`take 2 "abcde"` → `"ab"`；`- 5 3` → `2`；`3 3 =` → `true`；
-`double : [ * 2 ]` 单独执行栈不变且 `5 double` → `10`；
-`dump` 输出 `(do (rb/push "abcde") (rb/push 2) (rb/take))` 形状；
+**验收命令**：`make test`（单元 60 / 端到端 21 / core-only 全绿），含：
+`take 2 "abcde"` → `"ab"`；`- 5 3` → `2`；`= 3 3` → `true`；
+`double : [ * 2 ]` 单独执行栈不变且 `double 5` → `10`；
+`--dump` 输出 `(do (rb/push "abcde") (rb/push 2) (rb/take))` 形状；
 两路并发 eval 栈互不污染。
+**注**：M1 的验收测试已在 M0 内一并落地（主脊就是 M0 的交付内容）。
 **CHK-1 需裁决**：镜像语义与边界（引号内 RTL、定义行例外、`{ }`/`H{ }` 是否参与反转）逐例确认。
 
 ---

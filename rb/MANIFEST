@@ -10,6 +10,10 @@ rb/translate.janet
 rb/words/l0.janet
 rb/words/l1.janet
 rb/words/l1b.janet
+rb/words/l1c.janet
+rb/words/l1d.janet
+rb/words/l2.janet
+rb/words/l5.janet
 rb/words/l5b.janet
 rb/eval.janet
 rb/cli.janet

@@ -41,9 +41,17 @@
 (defn eval-stack
   "求值并返回剩余数据栈（元组）；出错返回 [:__error__ 消息]。"
   [src]
-  (def r (rb/run-source src "test"))
+  (def r (try (rb/run-source src "test") ([e] {:ok false :error e})))
   (if (r :ok)
     (tup (r :stack))
+    [:__error__ (rb/error-msg (r :error))]))
+
+(defn eval-top
+  "求值并返回**栈顶**值（栈空则 nil）；出错返回 [:__error__ 消息]。"
+  [src]
+  (def r (try (rb/run-source src "test") ([e] {:ok false :error e})))
+  (if (r :ok)
+    (last (r :stack))
     [:__error__ (rb/error-msg (r :error))]))
 
 (defn eval-exit
@@ -54,7 +62,7 @@
 
 (defn eval-ok?
   [src]
-  ((rb/run-source src "test") :ok))
+  ((try (rb/run-source src "test") ([e] {:ok false :error e})) :ok))
 
 (defn translated
   "取转译产物文本（REQ-31）。"

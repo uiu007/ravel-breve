@@ -1,11 +1,25 @@
-# rb/cli.janet —— CLI 与前后端分离骨架（REQ-22 / REQ-23 / REQ-24）
+# rb/cli.janet —— CLI 与前后端分离骨架（REQ-22 / REQ-23 / REQ-24 / REQ-25）
 #
 # 形态：ravel（REPL）/ ravel -e "<一行>" / ravel script.breve / ravel --serve
 # 退出码由 rb/exit.janet 分级（REQ-23）。
-# --serve 为 NDJSON over stdio 的 M0 骨架：每行一条 ravel 源码，
-#   回一行 JSON 结果；每个请求使用**独立栈环境**（REQ-30 验收）。
+# --serve 为 NDJSON over stdio：每行一条 ravel 源码，回一行 JSON 结果；
+#   工作区（字典 + 栈）跨请求保留（REQ-42）。
+#
+# REQ-25：元命令是**无前缀裸词**，与代码的分界由编辑器 minibuffer 承担；
+#   因此后端只需一份**保留名表**，并保证这些名字不被解释为方言词。
+#   完整分发（提示符 / 帮助 / 清屏）在 M5，本处先冻结名单。
 
 (def rb/version-string "ravel breve 1.0c · janet 1.42.1")
+
+# REQ-25：保留的元命令名（无前缀裸词）。
+(def rb/meta-commands
+  @["quit" "exit" "help" "clear" "agents" "watch" "unwatch" "save" "load"])
+
+(defn rb/meta-command?
+  [s]
+  (var found false)
+  (each m rb/meta-commands (when (= m s) (set found true)))
+  found)
 
 (defn rb/cli-usage
   []

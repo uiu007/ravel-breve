@@ -15,13 +15,17 @@ make test            # 单元 + 符合性 + 端到端 + 附录 D（core-only）
 make check-vendor    # 校验 vendor/janet 的 sha256
 ```
 
-M0 验收（CHK-0）：
+验收现状：**M2**（词表 L0–L5）。`make test` → 147 单元/符合性 + 22 端到端 + core-only 全绿。
 
 ```sh
 make clean && make
-./bin/ravel -v                        # ravel breve 1.0c · janet 1.42.1
+./bin/ravel -v                         # ravel breve 1.0c · janet 1.42.1
 ./bin/ravel --dump -e 'take 2 "abcde"' # (do (rb/push "abcde") (rb/push 2) (rb/take))
 ./bin/ravel -e 'take 2 "abcde"'        # "ab"
+./bin/ravel -e 'map [ * 2 ] { 1 2 3 }' # (2 4 6)
+./bin/ravel -e 'filter [ < 2 ] { 1 2 3 4 }' # (3 4)
+./bin/ravel -e 'at "a" H{ "a" 1 }'     # 1
+./bin/ravel -e 'to-json H{ "a" 1 }'    # "{\"a\":1}"（CLI 打印字符串带引号）
 ```
 
 ## 用法
@@ -43,6 +47,19 @@ take 2 "abcde"        # 读作 take(2, "abcde")  →  "ab"
 = 3 3                 # →  true
 3 3 =                 # 非法波兰式（= 左侧无操作数）→ 栈下溢 30
 double : [ * 2 ]      # 定义行（元层，不参与镜像）
+{ 1 2 3 }             # 字面量：数据，不参与镜像（REQ-44）→ tuple (1 2 3)
+H{ "a" 1 }            # 映射字面量 → table @{"a" 1}
+[ * 2 ]               # 引号：延迟代码，只由组合子触发（REQ-32）
+map [ * 2 ] { 1 2 3 } # → (2 4 6)
+filter [ < 2 ] { 1 2 3 4 }  # 隐藏实参是**最右**操作数 → 读作 2 < x → (3 4)
+if > 5 3 [ "big" ] [ "small" ]  # → "big"
+try [ 7
+fail "boom" ] [ to-string ]     # 分语句：7 先入栈 → 栈 [7 "boom"]
+```
+
+> ⚠️ **最易误读的一条**：镜像后**栈上已有的值总是靠后的操作数**。
+> `1 2 +` 式在本方言写作 `+ 1 2`；若 `c` 已在栈上，`- 1` 算的是 `1 - c`，
+> 要算 `c - 1` 必须 `swap`。详见 `docs/DECISIONS.md` D-18 与 `docs/SPEC-FEEDBACK.md` SF-12。
 double 5              # →  10
 apply [ * 2 ] 21      # 引号压栈即数据，由组合子触发 → 42
 ```

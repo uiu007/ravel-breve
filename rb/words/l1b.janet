@@ -1,6 +1,6 @@
 # rb/words/l1b.janet —— L1b 布尔 / 比较 / 算术
 #
-# 操作数次序沿用 `- 5 3` 读作「5 减 3」的约定：a = 栈顶 = 书写序最左实参。
+# 操作数次序：a = 栈顶 = 书写序最左实参（`- 5 3` 即第一个操作数减第二个）。
 # （比较运算的次序见 docs/DECISIONS.md D-04，CHK-1 裁决）
 
 (defn rb/eq [] (def a (rb/pop)) (def b (rb/pop)) (rb/push (= a b)))

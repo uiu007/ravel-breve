@@ -25,17 +25,15 @@
     (is= [] (eval-stack "loop 0 [ 1 ]"))
     (is= [3] (eval-stack "sum { 1 1 1 }"))))
 
-(deftest "L5：while（条件引号须自己保留计数）"
+(deftest "L5：while（条件引号是完整的波兰式，留一个真值在栈上）"
   (fn []
-    # 栈上**已有**的值总是靠后的操作数（附录 A 推论），且比较是二元的，
-    # 所以计数式循环要 `dup` 保留计数、`swap` 把它提到栈顶。
-    # 读法：`[ < swap 3 dup ]` 执行序为 dup → 3 → swap → < ，即「保留 c，c < 3」。
-    (def cond-q "[ < swap 3 dup ]")
-    (def body-q "[ + 1 ]")
-    (is (eval-ok? (string "0\nwhile " cond-q " " body-q)))
-    (is= [3] (eval-stack (string "0\nwhile " cond-q " " body-q)))
-    # 条件一开始就不成立时不执行体
-    (is= [5] (eval-stack (string "5\nwhile " cond-q " " body-q)))
+    # 全部写成波兰式：`depth` 把当前深度压栈，`< 1 depth` 即「1 小于 depth」。
+    # 累加循环：[1 2 3] → 加两次 → [6]，此时 depth = 1，条件不再成立。
+    (is= [6 1] (eval-stack "1 2 3\nwhile [ < 1 depth ] [ + ]\ndepth"))
+    # 弹空循环：[1 2 3] 弹三次 → []，depth = 0 → 条件不成立
+    (is= [0] (eval-stack "1 2 3\nwhile [ < 0 depth ] [ pop ]\ndepth"))
+    # 一开始条件就不成立 → 体不执行
+    (is= [0] (eval-stack "while [ < 0 depth ] [ pop ]\ndepth"))
     # 条件引号不留真值 → 栈下溢（30）
     (is= 30 (eval-exit "1\nwhile [ ] [ pop ]"))))
 

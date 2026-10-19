@@ -46,7 +46,7 @@
 
 (deftest "L1：filter 保留形态"
   (fn []
-    # 引号里的隐藏实参是**最右**操作数：`[ < 2 ]` 读作 `2 < 元素`
+    # 引号是未写满的波兰式，隐藏实参补在**最右**：`[ < 2 ]` 补成 `< 2 元素`
     (is= [(tuple 3 4)] (eval-stack "filter [ < 2 ] { 1 2 3 4 }"))
     (is= ["b"] (eval-stack "filter [ contains \"b\" ] \"abc\""))))
 
@@ -54,7 +54,7 @@
   (fn []
     (is= [10] (eval-stack "fold [ + ] 0 { 1 2 3 4 }"))
     (is= [24] (eval-stack "fold [ * ] 1 { 1 2 3 4 }"))
-    # 非交换：acc - x
+    # 非交换：`- 累加值 元素`（累加值是第一个操作数）
     (is= [-10] (eval-stack "fold [ - ] 0 { 1 2 3 4 }"))))
 
 (deftest "L1：组合子引号元数不符 → 运行时元数错误（32）"

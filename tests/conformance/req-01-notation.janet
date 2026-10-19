@@ -3,15 +3,15 @@
 # 验收：语法 = 波兰（前缀）表达式；执行 = 类 Forth 栈机。
 # 唯一方向规则：最左实参 = 第一个操作数 = 栈顶 = 先被消费。
 
-(deftest "REQ-01：take 2 \"abcde\" 读作 take(2, abcde)（附录 A 例）"
+(deftest "REQ-01：take 2 \"abcde\" 中 2 是第一个操作数（附录 A 例）"
   (fn []
     (is= ["ab"] (eval-stack "take 2 \"abcde\""))))
 
-(deftest "REQ-01：- 5 3 读作 5 减 3（最左实参 = 第一个操作数）"
+(deftest "REQ-01：- 5 3 是第一个操作数减第二个（最左实参 = 第一个操作数）"
   (fn []
     (is= [2] (eval-stack "- 5 3"))))
 
-(deftest "REQ-01 推论：< 5 3 读作 5 < 3（比较无需另设规则）"
+(deftest "REQ-01 推论：< 5 3 是第一个操作数小于第二个（比较无需另设规则）"
   (fn []
     (is= [false] (eval-stack "< 5 3"))
     (is= [true] (eval-stack "< 3 5"))))

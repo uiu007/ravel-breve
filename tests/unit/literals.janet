@@ -45,7 +45,7 @@
     (is= 22 (eval-exit "{ 1 nope }"))
     (is= 22 (eval-exit "H{ \"a\" nope }"))
     (is= 22 (eval-exit "{ [ 1 ] }"))
-    (is= 22 (eval-exit "{ 1 2" ))
+    (is= 22 (eval-exit "{ 1 2"))
     (is= 22 (eval-exit "H{ \"a\" }"))))
 
 (deftest "字面量：多余的 } 是语法错误（21）"

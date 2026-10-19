@@ -1,4 +1,6 @@
 # tests/unit/lexer.janet —— 词法单元测试（REQ-03 / REQ-04）
+#
+# `rb/lex` 的第二参数只是错误信息里显示的文件名，测试里统一用 "t"。
 
 (deftest "词法：语句与记号切分"
   (fn []

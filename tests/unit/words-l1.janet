@@ -50,7 +50,7 @@
     (is= [(tuple 3 4)] (eval-stack "filter [ < 2 ] { 1 2 3 4 }"))
     (is= ["b"] (eval-stack "filter [ contains \"b\" ] \"abc\""))))
 
-(deftest "L1：fold（引号形如 `q acc x`）"
+(deftest "L1：fold（引号补成 `- 累加值 元素`，累加值为第一个操作数）"
   (fn []
     (is= [10] (eval-stack "fold [ + ] 0 { 1 2 3 4 }"))
     (is= [24] (eval-stack "fold [ * ] 1 { 1 2 3 4 }"))
@@ -60,7 +60,13 @@
 (deftest "L1：组合子引号元数不符 → 运行时元数错误（32）"
   (fn []
     (is= 32 (eval-exit "map [ dup ] { 1 2 }"))
-    (is= 32 (eval-exit "map [ pop 1 1 ] { 1 2 }"))))
+    # 引号把实参消费掉却不产出 → 深度不变 → 元数错误
+    (is= 32 (eval-exit "map [ pop ] { 1 2 }"))))
+
+(deftest "L1b：sum"
+  (fn []
+    (is= [6] (eval-stack "sum { 1 2 3 }"))
+    (is= [0] (eval-stack "sum { }"))))
 
 (deftest "L1：join（REQ-11）"
   (fn []

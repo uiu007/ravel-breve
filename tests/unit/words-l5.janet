@@ -23,7 +23,8 @@
   (fn []
     (is= [1 1 1] (eval-stack "loop 3 [ 1 ]"))
     (is= [] (eval-stack "loop 0 [ 1 ]"))
-    (is= [3] (eval-stack "sum { 1 1 1 }"))))
+    # 体引号在栈上累积：跑 2 次 → 栈上两个 7
+    (is= [7 7] (eval-stack "loop 2 [ 7 ]"))))
 
 (deftest "L5：while（条件引号是完整的波兰式，留一个真值在栈上）"
   (fn []

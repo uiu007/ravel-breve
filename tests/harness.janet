@@ -109,8 +109,14 @@
   ((env :rb-ws) :agents))
 
 (defn in-env
-  "在给定工作区环境里运行一个 janet thunk（让 rb/push 等能取到数据栈）。"
+  "在给定工作区环境里运行一个 janet thunk（让 rb/push 等能取到数据栈）。
+   返回 fiber 本身——要看有没有抛错用 (fiber/status ...)，要取值用 val-in。"
   [env f]
   (def fb (fiber/new f :e env))
   (resume fb)
   fb)
+
+(defn val-in
+  "同 in-env，但返回 thunk 的值（抛错则返回错值）。"
+  [env f]
+  (fiber/last-value (in-env env f)))

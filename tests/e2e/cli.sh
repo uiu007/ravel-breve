@@ -113,5 +113,30 @@ check_rc "渲染：中文不转义" 0 $RAVEL -e '"你好"'
 check "渲染：保留 UTF-8（D-32）" '"你好"' "$(cat /tmp/rb-e2e-out)"
 check_rc "流：未知事件名 → 20" 20 $RAVEL -e '@on @Nope [ 1 ]'
 
+echo "-- M4：持久化与工作区（REQ-20 / REQ-21）"
+W=/tmp/rb-e2e-ws.json
+rm -f "$W" "$W.log"
+check_rc "工作区：跨进程保存" 0 $RAVEL -e "x : [ * 2 ]
+save current \"$W\""
+check "工作区：快照含 kind" "yes" \
+      "$(grep -q 'ravel-workspace' "$W" && echo yes || echo no)"
+check_rc "工作区：跨进程载入后字典可用" 0 bash -c "printf 'load \"%s\"\npop\nx 21\n' "$W" | $RAVEL --serve"
+check "工作区：载入后确实算出 42" "yes" \
+      "$(grep -q '42' /tmp/rb-e2e-out && echo yes || echo no)"
+check "工作区：句柄渲染不递归" "yes" \
+      "$(grep -q '#<workspace>' /tmp/rb-e2e-out && echo yes || echo no)"
+check_rc "工作区：compact 显式调用" 0 $RAVEL -e "x : [ * 2 ]
+save current \"$W\"
+y : [ + 1 ]
+compact current"
+check "工作区：compact 后日志清空" "0" "$(wc -c < "$W.log" | tr -d ' ')"
+check_rc "IO：write 写文件" 0 $RAVEL -e "write \"hi\" \"/tmp/rb-e2e.txt\""
+check "IO：write 后内容就位" "hi" "$(cat /tmp/rb-e2e.txt)"
+check_rc "IO：read 读回" 0 $RAVEL -e "read \"/tmp/rb-e2e.txt\""
+check "IO：read 渲染" '"hi"' "$(cat /tmp/rb-e2e-out)"
+check_rc "IO：读不存在 → 40" 40 $RAVEL -e "read \"/tmp/rb-e2e-nope.txt\""
+check_rc "IO：载入不存在 → 40" 40 $RAVEL -e "load \"/tmp/rb-e2e-nope.json\""
+check_rc "工作区：save 非工作区 → 31" 31 $RAVEL -e "save H{ } \"/tmp/rb-e2e-x.json\""
+
 echo "端到端：通过 $pass，失败 $fail"
 [ "$fail" -eq 0 ]

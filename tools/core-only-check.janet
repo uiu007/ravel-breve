@@ -41,4 +41,10 @@
            ((rb/compile-source "take 2 \"abcde\"") :code))
   (fail "转译产物与 REQ-31 不符"))
 
+# M4：L7 词依赖 cap/fs 与 cap/json，剔除能力层后必须报 60（REQ-37）
+(each src @["read \"/tmp/x\"" "write \"a\" \"/tmp/x\"" "load \"/tmp/x\""]
+  (def r (rb/run-source src "core-only"))
+  (when (or (r :ok) (not= 60 (rb/error-code (r :error))))
+    (fail (string "缺能力层时应报 60：" src))))
+
 (print "core-only: 通过（核心可独立装载并完成主脊）")

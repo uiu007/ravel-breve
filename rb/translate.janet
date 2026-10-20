@@ -6,7 +6,11 @@
 # 定义行 `名字 : [ 体 ]` 是**元层**：不参与镜像，顺序固定（REQ-34），
 # 在装载期（= 转译期）注册进字典（REQ-33），运行期无栈效果。
 #
-# 注意：块 ↔ 语句序列互为递归，translate-stmts 需要前向声明（var + set）。
+# 转译期要用**目标工作区的字典**解析用户词（REQ-30：字典属于工作区），
+# 因此 `rb/compile-source` 显式把 dict 传下来，转译函数逐层带参。
+#
+# 注意：块 ↔ 语句序列互为递归，translate-stmts 需要前向声明（var + set）；
+# token → ravel 源文本同理（`rb/tokens->src` ↔ `rb/token->src`）。
 
 # 换名表：ravel 词名 → 宿主符号（一张表，便于审计与 see）
 # 约定：**一个名字只有一种词性**（REQ-09）；本表优先于字典，
@@ -107,21 +111,59 @@
     "next" "rb/next"
     "drain" "rb/drain"
     "utter" "rb/utter"
-    "stop" "rb/stop"})
+    "stop" "rb/stop"
+    # L7 持久化（M4）
+    "read" "rb/read"
+    "write" "rb/write"
+    "save" "rb/save"
+    "load" "rb/load"
+    "current" "rb/current-ws"
+    "compact" "rb/compact"})
 
 (def rb/literals @{"true" "true" "false" "false" "nil" "nil"})
 
-# 前向声明：块内递归需要 translate-stmts
+# 前向声明：块内递归需要 translate-stmts；token ↔ 源文本互为递归
 (var rb/translate-stmts nil)
+(var rb/tokens->src nil)
+
+(defn rb/lit-src
+  "把一个字面量值还原为 **ravel 源文本**（D-34：`see` 与快照存源，不存宿主码）。"
+  [v]
+  (cond
+    (tuple? v) (string "{ " (string/join (map rb/lit-src v) " ") " }")
+    (table? v)
+    (string "H{ "
+            (string/join (map (fn [k] (string (rb/lit-src k) " " (rb/lit-src (get v k))))
+                              (sort (keys v)))
+                         " ")
+            " }")
+    (string/format "%q" v)))
+
+(defn rb/token->src
+  "token → ravel 源文本。"
+  [t]
+  (case (t :kind)
+    :num (string/format "%q" (t :value))
+    :str (rb/render-string (t :value))
+    :word (t :value)
+    :block (string "[ " (rb/tokens->src (t :tokens)) " ]")
+    :seq-lit (rb/lit-src (t :value))
+    :map-lit (rb/lit-src (t :value))
+    (string (t :value))))
+
+(set rb/tokens->src
+     (fn [stmts]
+       (string/join (map (fn [st] (string/join (map rb/token->src st) " ")) stmts)
+                    "\n")))
 
 (defn rb/word-form
-  "把一个方言词名转译为宿主调用形式。"
-  [name]
+  "把一个方言词名转译为宿主调用形式（dict = 目标工作区的字典）。"
+  [name &opt dict]
   (def host (get rb/rename name))
   (def lit (get rb/literals name))
   (cond
     (not (nil? host)) (string "(" host ")")
-    (rb/dict? name) (string "(rb/call-word " (rb/render name) ")")
+    (rb/dict? name dict) (string "(rb/call-word " (rb/render name) ")")
     (not (nil? lit)) (string "(rb/push " lit ")")
     # 事件名（REQ-16 / REQ-17）：`@Start` … `@RoundDone` 是**字面记号**，压栈即值
     (rb/event? name) (string "(rb/push " (rb/render name) ")")
@@ -144,23 +186,23 @@
     (rb/render v)))
 
 (defn rb/translate-token
-  [t]
+  [t &opt dict]
   (case (t :kind)
     :num (string "(rb/push " (rb/render (t :value)) ")")
     :str (string "(rb/push " (rb/render (t :value)) ")")
-    :block (string "(rb/quot (fn [] " (rb/translate-stmts (t :tokens)) "))")
+    :block (string "(rb/quot (fn [] " (rb/translate-stmts (t :tokens) dict) "))")
     :seq-lit (string "(rb/push " (rb/lit-code (t :value)) ")")
     :map-lit (string "(rb/push " (rb/lit-code (t :value)) ")")
-    :word (rb/word-form (t :value))
+    :word (rb/word-form (t :value) dict)
     (rb/raise (rb/exit-table :syntax-unexpected-token)
               (string "无法转译的记号：" (t :kind)))))
 
 (defn rb/translate-forms
   "一条语句：token 书写序 → 求值序的形式文本数组。"
-  [toks]
+  [toks &opt dict]
   (def out @[])
   (each t (reverse toks)
-    (array/push out (rb/translate-token t)))
+    (array/push out (rb/translate-token t dict)))
   out)
 
 (defn rb/definition?
@@ -173,27 +215,29 @@
        (= ((toks 2) :kind) :block)))
 
 (defn rb/translate-def
-  "元层特例：`名字 : [ 体 ]`（REQ-33/34）。"
-  [toks]
+  "元层特例：`名字 : [ 体 ]`（REQ-33/34）。
+   同时产出两份文本：宿主序（执行用，D-35）与 ravel 源（see/快照用，D-34）。"
+  [toks &opt dict]
   (def name ((toks 0) :value))
   (def body ((toks 2) :tokens))
-  (def body-code (string "(fn [] " (rb/translate-stmts body) ")"))
-  (rb/dict-declare name body-code)
+  (def body-src (rb/tokens->src body))
+  (def body-code (string "(fn [] " (rb/translate-stmts body dict) ")"))
+  (rb/dict-declare name body-src dict)
   (string "(rb/define-word " (rb/render name) " " body-code " nil "
-          (rb/render body-code) ")"))
+          (rb/render body-src) " " (rb/render body-code) ")"))
 
 (defn rb/stmt-forms
   "一条语句 → 形式文本数组（定义行是元层，不参与镜像）。"
-  [toks]
+  [toks &opt dict]
   (if (rb/definition? toks)
-    @[(rb/translate-def toks)]
-    (rb/translate-forms toks)))
+    @[(rb/translate-def toks dict)]
+    (rb/translate-forms toks dict)))
 
 (set rb/translate-stmts
-     (fn [stmts]
+     (fn [stmts &opt dict]
        # 语句序列 → 扁平的 (do form ...)；语句之间保持书写序。
        (def out @[])
        (each s stmts
-         (each f (rb/stmt-forms s)
+         (each f (rb/stmt-forms s dict)
            (array/push out f)))
        (string "(do " (string/join out " ") ")")))

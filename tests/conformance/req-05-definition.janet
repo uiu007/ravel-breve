@@ -22,13 +22,17 @@
     (is (eval-ok? "c5d : [ * 2 ]"))
     (is= 20 (eval-exit ": [ * 2 ] c5d"))))
 
-(deftest "REQ-35：字典可 see/doc 查询"
+(deftest "REQ-35：字典可 see/doc 查询（字典属于工作区，REQ-30）"
   (fn []
-    (eval-stack "c5e : [ * 2 ]")
-    (def e (get rb/dict "c5e"))
+    (def env (new-ws))
+    (run-in env "c5e : [ * 2 ]")
+    (def e (val-in env (fn [] (rb/dict-entry "c5e"))))
     (is (not (nil? e)))
-    (is (string/find "(rb/push 2) (rb/mul)" (e :src)))
-    (is (function? (e :body)))))
+    (is= "* 2" (e :src) "see 显示的是 ravel 源（D-34）")
+    (is (string/find "(rb/push 2) (rb/mul)" (e :code)))
+    (is (function? (e :body)))
+    # 字典随工作区：另一个工作区看不到 c5e
+    (is (nil? (val-in (new-ws) (fn [] (rb/dict-entry "c5e")))) "字典不跨工作区")))
 
 (deftest "REQ-35：重定义覆盖（同一名字二次定义后体为新体）"
   (fn []

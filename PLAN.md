@@ -140,15 +140,17 @@ RavelBreve/
 
 ---
 
-### M4 · 持久化与工作区
+### M4 · 持久化与工作区 · ✅ 已完成（tag `m4`）
 **覆盖**：REQ-20、REQ-21。
 **交付**
 - 版本化单文件 JSON 快照 + JSONL 增量日志（含 `agents` 血缘字段）。
 - `save/load/current/compact`（`read/write` 经能力层）。
 - compact 三条件：日志 > 快照 0.5 倍（主判据）/ 日志 > 1000 条 / 显式调用。
 - 崩溃恢复用例（半行 JSONL 容错）。
-**验收命令**：`make test -- --req 20,21`；阈值边界测试（0.5x−ε / 0.5x+ε / 1000±1）。
-**CHK-4 需裁决**：快照与日志**格式冻结**（字段名、版本字段、半行容错策略）——附录 C 明确留待实现期定。
+**验收命令**：`make test`（`tests/unit/store.janet`、`tests/conformance/req-20-workspace.janet`、
+`req-21-compact.janet`、`tests/e2e/cli.sh` 的 M4 段）。
+**CHK-4 结论**：格式已冻结 → **D-33**（快照五段 + 每轮一行日志 + 末行半截容忍）；顺带 D-34…D-38。
+**遗留**：SF-18（小工作区每轮 compact）待裁决；`tests/unit/store.janet` 用 `pad!` 撑大快照绕开该效应。
 
 ---
 
@@ -218,7 +220,7 @@ RavelBreve/
 | R3 | `Session` 写时复制（附录 C） | 大 session 性能 | M3 先语义正确，千条级实测；O(1) 方案延后 |
 | R4 | NDJSON 双向不阻塞需真正并发（fiber/ev） | 无法满足 REQ-24 | M5 用 duplex 测试作硬闸门 |
 | R5 | Janet 无内置 JSON；核心不得含 JSON 解析（附录 D） | 归属争议 | CHK-6 裁决；默认：核心只留词，实现走 provider |
-| R6 | 多工作区时字典需从模块级全局移入工作区对象（当前为单一隐式工作区） | 工作区串扰 | M4 落地 REQ-20 时重构 `rb/dict`；栈已按 env 隔离（REQ-30） |
+| R6 | ~~多工作区时字典需从模块级全局移入工作区对象~~ **已在 M4 解决** | — | `rb/dict` 改为 `rb/dict-of [&opt ws]`，字典住在工作区；栈与字典同属工作区（REQ-30） |
 | R7 | Spec 中 ❓ / 未冻结项多 | 反复返工 | 集中在检查点裁决，先实现无争议部分 |
 | R8 | 父目录 `/home/uiu` 是 git 仓库且含坏 submodule | git 操作干扰 | RavelBreve 内独立 `git init`，所有操作限定子目录 |
 

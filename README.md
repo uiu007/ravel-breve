@@ -116,6 +116,33 @@ bcast say "hi" { "coder*" }   # → list Stream（2 个）
 `RB_LLM=mock` 走离线确定性 provider，`RB_MODEL` 换模型。`make test` 全程离线，
 `bash tests/e2e/agent.sh` 才是真机验收（无密钥自动跳过）。
 
+## 持久化与工作区（M4）
+
+**工作区 = 字典（函数与常量）+ 栈（变量）**（REQ-30）。两半都可落盘、可复原：
+
+```breve
+x : [ * 2 ]                    # 字典
+42 "hi"                        # 栈（镜像后栈顶是 42）
+save current "ws.json"         # 单文件 JSON 快照
+```
+
+另一个进程（或下次启动）：
+
+```breve
+load "ws.json"                 # → 工作区句柄（Path -- Workspace）
+pop                            # 句柄用完丢掉
+x 21                           # → 84：字典与栈都回来了
+```
+
+- 落盘格式（D-33）：`ws.json` = 快照（`kind`/`version`/`dict`/`stack`/`agents`），
+  `ws.json.log` = **JSONL 增量日志**，每轮一行；写日志时崩溃留下的**半行会被容忍**并告警。
+- 字典只存 **ravel 源**，载入时重新转译（D-34）——文件里没有宿主机序。
+- `compact` 三条件（REQ-21）：① 日志 > 快照 0.5 倍；② 日志 > 1000 条；③ 显式 `compact current`。
+  小工作区会因此频繁 compact（D-37，已提 SF-18）。
+- **载入进来的词下一轮才解析得到**（转译先于执行，D-38）：`load` 之后的同一轮里调新词会报 20。
+- 核心不碰文件：`read` / `write` / `save` / `load` / `compact` 全部经 `:fs/*`、`:json/*`
+  能力键；`--core-only` 时报 60。
+
 ## 目录
 
 ```

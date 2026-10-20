@@ -26,16 +26,32 @@
   (buffer/push-byte b 34)
   (string b))
 
-(defn rb/render
-  "把一个值渲染为单行文本（Janet 可回读字面量；字符串保留 UTF-8）。"
+(def rb/render-max-depth 8)
+
+(defn rb/workspace-value?
+  "认出工作区表（有字典 + 钩子 + 活 agent）。渲染它会把 :env 的环带进来，故特判。"
   [x]
+  (and (table? x)
+       (nil? (get x :kind))
+       (not (nil? (get x :dict)))
+       (not (nil? (get x :hooks)))
+       (not (nil? (get x :agents)))))
+
+(defn rb/render
+  "把一个值渲染为单行文本（Janet 可回读字面量；字符串保留 UTF-8）。
+   工作区句柄与过深结构渲染成 `#<…>` 占位（避免把 :env 的环打出来）。"
+  [x &opt depth]
+  (def d (or depth 0))
   (cond
     (string? x) (rb/render-string x)
-    (tuple? x) (string "(" (string/join (map rb/render x) " ") ")")
-    (array? x) (string "@[" (string/join (map rb/render x) " ") "]")
+    (rb/workspace-value? x) "#<workspace>"
+    (> d rb/render-max-depth) "#<deep>"
+    (tuple? x) (string "(" (string/join (map (fn [v] (rb/render v (+ 1 d))) x) " ") ")")
+    (array? x) (string "@[" (string/join (map (fn [v] (rb/render v (+ 1 d))) x) " ") "]")
     (or (table? x) (struct? x))
     (let [body (string/join
-                 (map (fn [k] (string (rb/render k) " " (rb/render (get x k))))
+                 (map (fn [k]
+                        (string (rb/render k (+ 1 d)) " " (rb/render (get x k) (+ 1 d))))
                       (sort (keys x)))
                  " ")]
       (string (if (table? x) "@{" "{") body "}"))

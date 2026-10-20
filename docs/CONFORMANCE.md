@@ -1,7 +1,7 @@
 # 符合性矩阵（REQ ↔ 测试）
 
 依据规格：**`ravel-breve-spec-v1.0c.md`**（修订定稿）；`ravel-breve-spec-v1.0b.md` 为历史原文。
-状态：**M3**（词表 L0–L8 + agent / 流 / 钩子 / 收尾已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+状态：**M4**（词表 L0–L8 + 持久化 L7 + agent / 流 / 钩子 / 收尾已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**（见文末）。
 
@@ -42,7 +42,7 @@
 | REQ | 内容 | 状态 | 备注 |
 |---|---|---|---|
 | REQ-06 | 结构类型 String/Utter/Session/Stream/Json | ✅ | `conformance/req-06-07-types.janet`、`unit/stream.janet` |
-| REQ-07 | 包装类型 Head/Endpoint/Path/Event/Workspace | ✅（负面；Ws 待 M4） | `conformance/req-06-07-types.janet` |
+| REQ-07 | 包装类型 Head/Endpoint/Path/Event/Workspace | ✅ | `conformance/req-06-07-types.janet`、`req-20-workspace.janet`（Workspace 句柄） |
 | REQ-08 | Stream 独立类型，chunk 到达即 flush | ✅ | `conformance/req-08-stream.janet`、`unit/stream.janet` |
 | REQ-09 | 词表分层 L0–L9，一名一词性 | ✅ | `conformance/req-09-word-table.janet` |
 | REQ-10 | Session 复用 L1 多态序列词，无会话编辑词 | ✅ | `conformance/req-10-session-polymorphism.janet` |
@@ -55,8 +55,8 @@
 | REQ-17 | 8 个事件名 | ✅ | `conformance/req-16-19-hooks.janet`、`unit/events.janet` |
 | REQ-18 | 默认回合收尾钩子（@RoundDone）逐 stream 四步：解析绑定→转 utter→append→退订/删 stream | ✅ | `conformance/req-45-46-round.janet`（D-30：中断则本轮作废） |
 | REQ-19 | `@off @RoundDone` 可禁用 | ✅ | `conformance/req-16-19-hooks.janet` |
-| REQ-20 | 版本化 JSON 快照 + JSONL 增量日志 | ⏳ M4 | 格式待 CHK-4 冻结 |
-| REQ-21 | compact 三条件（0.5 倍 / 1000 条 / 显式） | ⏳ M4 | |
+| REQ-20 | 版本化 JSON 快照 + JSONL 增量日志 | ✅ | `conformance/req-20-workspace.janet`、`unit/store.janet`（格式冻结见 D-33） |
+| REQ-21 | compact 三条件（0.5 倍 / 1000 条 / 显式） | ✅ | `conformance/req-21-compact.janet`（小工作区频繁 compact 见 D-37） |
 | REQ-25 | 元命令为无前缀裸词（保留名表） | ✅（保留名表；分发待 M5） | `conformance/req-25-meta-commands.janet` |
 | REQ-26 | 底栏 token 序列，字符串占位 `"…"` | ⏳ M7 | 前端 |
 | REQ-27 | 主 buffer 为会话视图 | ⏳ M7 | 前端 |
@@ -158,13 +158,48 @@ append
 
 两条路径的会话**逐条相同**（`C:req-16-19-hooks` 断言）。
 
-## 能力层（M3）
+## M4 词表覆盖（持久化 / 工作区，L7）
+
+| 层 | 词 | 栈效应 | 用例 |
+|---|---|---|---|
+| L7 | `read` | `Path -- String`（读不到 40；缺能力 60） | C:req-20-workspace |
+| L7 | `write` | `String Path --`（写失败 41；缺能力 60） | C:req-20-workspace、e2e |
+| L7 | `current` | `-- Workspace` | C:req-20-workspace |
+| L7 | `save` | `Workspace Path --`（非当前工作区 31） | C:req-20-workspace |
+| L7 | `load` | `Path -- Workspace`（不存在 40） | C:req-20-workspace、e2e |
+| L7 | `compact` | `Workspace --`（未绑路径 60） | C:req-21-compact |
+
+**写读次序**（D-18 推论）：最左实参先被消费，故 `write "内容" "路径"`、`read "路径"`。
+
+**跨进程往返**：
+
+```breve
+x : [ * 2 ]
+save current "ws.json"
+```
+
+```breve
+# 另一个进程
+load "ws.json"
+pop          # 丢掉工作区句柄（load 的结果）
+x 21         # → 42（注意：载入进来的词要下一轮才解析得到，见 D-38）
+```
+
+**持久化格式（D-33 冻结）**：`<path>` = 单文件 JSON 快照（`kind` / `version` / `dict` / `stack` / `agents`）；
+`<path>.log` = JSONL，每轮一行 `{"v","n","defs","stack"}`；末行为半截时**容忍并告警**（崩溃恢复）。
+字典只存 **ravel 源**（D-34），宿主序仅用于 `--dump` 对照。
+
+**compact**：① 日志 > 快照 0.5 倍；② 日志 > 1000 条；③ 显式 `compact`。
+触发后写新快照、清空日志、计数归零。
+
+## 能力层（M3 / M4）
 
 | 能力 | 文件 | 说明 |
 |---|---|---|
 | `:llm/chat` | `cap/llm.janet` | 按 `RB_LLM`（`mock`/`nvidia`/`auto`）派发 |
 | `:json/encode` `:json/decode` | `cap/json.janet` | 唯一 JSON 实现（D-08） |
 | `:http/post-lines` | `cap/http.janet` | FIFO + `curl -N`（D-28，核心不含） |
+| `:fs/read` `:fs/write` `:fs/append` `:fs/size` `:fs/exists?` | `cap/fs.janet` | L7 词与快照的唯一落盘通道（`--core-only` 时 L7 词报 60） |
 | mock provider | `cap/mock.janet` | 离线、确定；`RB_MOCK_REPLY`，按 UTF-8 字符切块（D-31） |
 | NVIDIA provider | `cap/nvidia.janet` | OpenAI 兼容 SSE；`RB_MODEL` / `RB_ENDPOINT` / `RB_HTTP_TIMEOUT` |
 

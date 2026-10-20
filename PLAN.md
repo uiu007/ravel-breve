@@ -112,8 +112,8 @@ RavelBreve/
 
 ---
 
-### M3 · 会话、agent、钩子、流
-**覆盖**：REQ-08、REQ-12…REQ-19、REQ-36。
+### M3 · 会话、agent、钩子、流 —— ✅ **完成（tag `m3`）**
+**覆盖**：REQ-08、REQ-12…REQ-19、REQ-36、**REQ-45、REQ-46**（v1.0c 新增）。
 **交付**
 - `Session` 线性追加日志（REQ-12）；无任何就地编辑词（负面测试：`insert/remove/move` 不在词表）。
 - `agent <Label> <Session> [ quot ]` 派生新 agent + 内部血缘；仅 `origin` 对外（REQ-13/14）。
@@ -121,8 +121,22 @@ RavelBreve/
 - `hooks.janet`：`@on`/`@off` + 8 事件；默认 `@RoundDone` 收尾顺序 **stream → 合并进 session → 退订 → 删 stream**（REQ-18）；`@off @RoundDone` 可禁用（REQ-19）；工具调用中断**不**触发 `@RoundDone`。
 - `stream.janet`：`Stream ≡ fiber`，chunk 到达即 yield/flush 并发 `@Chunk`；`next/drain/stop`；异常 → `@Fail`/`@Error`。
 - mock provider（确定性脚本化回复）用于端到端。
-**验收命令**：`make test -- --req 08,12..19,36`；`tests/e2e/round-trip.janet`（一轮结束后 agent 无残留 stream、session 已含回复、事件序列快照比对）。
-**CHK-3 需裁决**：钩子时序表逐行核对；`@Close` vs `@Done` 触发条件；工具调用中断语义确认。
+**验收命令**：`make test`（单元 201 + 端到端 35 + 附录 D）、`bash tests/e2e/agent.sh`（真 NVIDIA，无密钥自动跳过）。
+**实际交付**
+- `rb/events.janet`（8 事件、`@on`/`@off`、`rb/emit` 栈隔离 D-25）、`rb/stream.janet`（状态机 + 四词）、
+  `rb/agent.janet`（agent / 会话 / 通配 / `llm-chat`）、`rb/round.janet`（默认 `@RoundDone` + 中断作废 D-30）。
+- `rb/words/l3.janet`（`append`/`session`/`send`/`resend`/`bcast`，词形 D-26）、`l4.janet`（`agent`/`origin`/`unsubscribe`）、
+  `l8.janet`（`@on`/`@off`/`next`/`drain`/`utter`/`stop`）。
+- 能力层：`cap/config`（密钥/模型/选择）、`cap/llm`（派发）、`cap/mock`（离线确定）、
+  `cap/nvidia`（SSE）、`cap/http`（FIFO + `curl -N`，D-28）。
+- 测试：`U:events`(7)、`U:agent`(8)、`U:stream`(9)、`C:req-08`(4)、`C:req-12-13`(4)、
+  `C:req-15`(5)、`C:req-16-19`(6)、`C:req-45-46`(7)、`e2e/agent.sh`(10，真 provider)。
+**实测**
+- mock 一轮：会话 = `[用户, 回声：…]`；手动路径（`@off` + `utter`/`append`）与自动路径**逐条相同**。
+- 真 NVIDIA：`agent "c" { }` + `send say "用一句话说你好"` + `drain` → `"你好！"`（约 1.3 秒，SSE 逐块 flush）。
+- 坏密钥 → 退出码 **60**（D-27）。
+**CHK-3 结论**：`@Done` 在取块函数返回 nil 后发、`@Close` 其后恰好一次；`@Fail` 只在取块函数抛出时发；
+中断（本轮失败）**不**触发 `@RoundDone` 且本轮列表作废。
 
 ---
 

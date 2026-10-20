@@ -6,6 +6,18 @@
 # JSON 的**实现**不在核心（附录 D）：`to-json` / `from-json` 只通过能力层
 # 注册表（§4.11）取用；剔除 cap/ 后核心仍可装载，调用时给出明确的运行时错误。
 
+(defn rb/utter?
+  "是不是一条消息（REQ-06：Utter = role + content）。"
+  [x]
+  (and (dictionary? x) (not (nil? (get x :role))) (not (nil? (get x :content)))))
+
+(defn rb/utter-ensure
+  [x]
+  (when (not (rb/utter? x))
+    (rb/raise (rb/exit-table :runtime-type)
+              (string "需要一条 Utter（H{ \"role\" \"…\" \"content\" \"…\" }），得到 " (type x))))
+  x)
+
 (defn rb/Utter
   "Role String -- Utter（低层构造；名词大写，附录 A）"
   []

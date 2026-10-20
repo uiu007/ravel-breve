@@ -13,7 +13,7 @@ BIN        := bin
 RB_MANIFEST := rb/MANIFEST
 RB_SRCS     := $(shell grep -v '^\s*#' $(RB_MANIFEST) | grep -v '^\s*$$')
 
-.PHONY: all test test-unit test-e2e test-core-only clean check-vendor bundle core-only
+.PHONY: all test test-unit test-e2e test-agent test-core-only clean check-vendor bundle core-only
 
 all: $(BIN)/ravel
 
@@ -39,11 +39,16 @@ bundle: $(BUILD)/rb-bundle.janet
 
 test: all test-unit test-e2e test-core-only
 
+# 测试一律走离线 provider（RB_LLM=mock），确定性、不联网（M3）
 test-unit: $(BUILD)/rb-bundle.janet
-	$(BUILD)/janet tests/run.janet
+	RB_LLM=mock $(BUILD)/janet tests/run.janet
 
 test-e2e: $(BIN)/ravel
-	bash tests/e2e/cli.sh
+	RB_LLM=mock bash tests/e2e/cli.sh
+
+# 真 provider（NVIDIA）：需要密钥；没有则脚本自行跳过（不进 make test）
+test-agent: $(BIN)/ravel
+	bash tests/e2e/agent.sh
 
 # 附录 D 验收：剔除 cap/ 后核心仍可独立装载并完成主脊
 test-core-only: | $(BUILD)/janet

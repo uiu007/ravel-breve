@@ -5,6 +5,10 @@
 #   逐 form 装载 build/rb-bundle.janet → 再逐 form 装载 tests/runner.janet。
 # 逐 form 装载与宿主 janet_dobytes 语义一致（宿主也是逐 form 编译执行的）。
 
+# 测试hermetic：一律走离线 provider，不联网（M3：agent 测试需要确定性）
+(os/setenv "RB_LLM" "mock")
+(os/setenv "RB_MOCK_REPLY" "abcdefgh")
+
 (defn rb-load-forms
   [path]
   (def env (curenv))

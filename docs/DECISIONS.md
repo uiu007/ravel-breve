@@ -209,3 +209,70 @@
 - **内容**：`at n "abc"` → `"b"`（单字符字符串），不是宿主字节码 `98`。
 - **理由**：D-17 的多态表要求 String 的元素是单字符字符串（与 `map`/`filter`/`take` 一致）。
 - **验收**：`U:words-l1`。
+
+## D-25 钩子不改变量空间（M3）
+
+- **内容**：`rb/emit` 在**每个钩子前后**把栈截断回调用前的深度 `d0`；载荷按「第一个操作数在栈顶」压入
+  （`(reverse payload)` 逐个 push）。
+- **理由**：钩子是**自动行为**（复杂度可见要求它不能悄悄改工作区）；REQ-17 的载荷契约又要保留。
+  于是「钩子能读到载荷、但读不到也写不坏宿主语句的栈」。
+- **实现陷阱**：迭代钩子前必须 `array/slice` 拷贝——钩子可能就地改数组。
+- **验收**：`U:events`（载荷序 + 栈截断）。
+
+## D-26 消息在前、目标在后：`send Utter Agent -- Stream`（M3）
+
+- **内容**：`append Utter Agent -- Agent`、`send Utter Agent -- Stream`、`resend Utter Agent -- Stream`、
+  `bcast Utter Domain -- list Stream`。
+- **理由**：D-18 的推论——**栈上已有的值只能落在最右操作数位置**。agent 是栈上的变量（REQ-30），
+  所以「目标」必须是最右实参，`send say "hi"` 才能直接吃栈上的 agent；语序上也自然（「把消息发给 agent」）。
+- **影响**：附录 A 的词形表仍是旧次序（`send Agent Utter`），已记入 SF-14 请规格侧修订。
+- **验收**：`C:req-12-13-agent`、`C:req-15-bcast`、`C:req-45-46-round`。
+
+## D-27 流 / provider 失败 → 退出码 60（M3）
+
+- **内容**：编排层失败统一落 `60`（附录 E 预留段）。触发点：`Stream` 进入 `:failed` 后
+  `drain`/`utter` 抛错；`cap/llm-chat` 取不到 provider、返回非函数、provider 内部报错。
+- **理由**：这类失败不是「方言用错」（30/31/33），也不是「文件/用法」（2/40），是**外部依赖失败**；
+  单列一段让脚本能区分「我的程序写错了」与「模型那头炸了」。
+- **实现陷阱**：`drain` 原先只返回已取到的部分文本、**静默吞掉失败** → 改为抛错（坏密钥的端到端验证靠它）。
+- **验收**：`U:stream`（失败流）、`tests/e2e/agent.sh`（坏密钥 → 60）。
+
+## D-28 HTTP 走 FIFO，不用 `os/spawn` 的 pipe（M3）
+
+- **现象**：`os/spawn` 建出的 pipe 在 `JANET_EV` 下两端都是 `O_NONBLOCK` → `file/read` 立刻假 EOF，
+  流式解析拿不到任何块（`drain` 返回 `""` 且不报错）。
+- **方案**：`mkfifo` + `bash -c 'exec > FIFO 2> ERRFILE; curl …'` + `file/read :line` 阻塞读；
+  读尽后 `os/proc-close`（**自带 wait**，不能再 `os/proc-wait`）取退出码、读 ERRFILE 诊断、`rm -f`。
+- **代价**：依赖 `mkfifo`/`bash`/`curl`（只在能力层 `cap/http.janet`，核心不含，REQ-37 不受影响）。
+- **验收**：`tests/e2e/agent.sh`（真流式逐块）。
+
+## D-29 默认 `@RoundDone` 经 `var` 间接层挂上（M3）
+
+- **原因**：`rb/ws-new`（`rb/events.janet`，装载序在前）就要预挂默认钩子，而默认钩子的实现在
+  `rb/round.janet`（装载序在后）→ 前向引用。
+- **方案**：`rb/ws-new` 注册 `(fn [] (when rb/default-round-done (rb/default-round-done)))`；
+  `rb/round.janet` 末尾 `(set rb/default-round-done …)`。
+- **验收**：`U:events`（默认钩子存在）、`C:req-45-46-round`。
+
+## D-30 `rb/round-finish` 在 env fiber 里 emit（M3）
+
+- **内容**：`(fiber/new (fn [] (rb/emit "@RoundDone" [ss])) :e env)`，使钩子里的
+  `(dyn :rb-ws)` / `(dyn :rb-stack)` 命中**工作区**；fiber 出错转 60。
+- **理由**：收尾钩子是方言词写的代码，必须和普通语句共享同一个工作区（REQ-42）。
+- **配套**：一轮**失败/中断**时走 `rb/round-abort`——**不**触发 `@RoundDone`（REQ-18 排除中断），
+  只清空本轮列表，避免残留 stream 混进下一轮。
+- **验收**：`C:req-45-46-round`（收尾后本轮清空）。
+
+## D-31 mock provider 按 UTF-8 字符切块（M3）
+
+- **现象**：按字节 `string/slice` 切 "回声：hi" 会切坏多字节字符。
+- **方案**：`cap/chars` 用 lead-byte 宽度求字符边界，至多 4 块；回复取自 `RB_MOCK_REPLY`。
+- **验收**：`C:req-08-stream`（四块 ab/cd/ef/gh）。
+
+## D-32 渲染保留 UTF-8（M3）
+
+- **现象**：`%q` 把中文印成 `"\xE9\x97\xAE"`，对中文用户不可读。
+- **方案**：`rb/render` 手写递归渲染：字符串只转义 `\\` `"` 与不可打印 ASCII，**高位字节原样输出**；
+  容器逐个递归（形态与 Janet 字面量一致，仍可回读）；其余标量交给 `%q`。
+- **边界**：容器的键须可排序（方言里的表都是关键字键）；`--serve` 的机器可读输出仍走 `cap/json`。
+- **验收**：`tests/e2e/cli.sh`（渲染：保留 UTF-8）。

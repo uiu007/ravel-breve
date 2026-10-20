@@ -13,6 +13,7 @@
 make                 # 构建 bin/ravel（vendor/janet 静态嵌入）
 make test            # 单元 + 符合性 + 端到端 + 附录 D（core-only）
 make check-vendor    # 校验 vendor/janet 的 sha256
+bash tests/e2e/agent.sh  # 真 provider 验收（NVIDIA；无密钥则跳过）
 ```
 
 验收现状：**M2**（词表 L0–L5）。`make test` → 147 单元/符合性 + 22 端到端 + core-only 全绿。
@@ -68,6 +69,52 @@ apply [ * 2 ] 21      # 引号压栈即数据，由组合子触发 → 42
 规则：**语法 = 波兰（前缀）表达式；执行 = 类 Forth 栈机**。
 由此得**唯一方向规则**：**最左实参 = 第一个操作数 = 栈顶 = 先被消费**。
 实现走**镜像原理（前缀 → 后置转换）**：`切词 → 递归镜像 → 换名 → 宿主求值`，无字节码、无自研 VM（REQ-02）。
+
+## agent 编排（M3）
+
+```breve
+agent "coder" { }             # 开一个 agent（栈上的变量）
+dup
+send say "用一句话说你好"      # 发消息 → 产物是 Stream（不回写会话）
+pop                           # 丢掉流句柄；收尾钩子仍会把它并回会话
+session                       # → 会话：用户那条 + 助手回复
+```
+
+一轮结束（每条语句/每个请求）时默认 `@RoundDone` 钩子对**每个 stream** 做四步：
+**① 解析绑定 → ② `Stream → Utter` → ③ `append` 进 agent → ④ 退订并删 stream**（REQ-18）。
+
+不想自动合并就关掉它，手动走同样两步（结果与自动路径逐条相同，REQ-19/REQ-46）：
+
+```breve
+agent "coder" { }
+@off @RoundDone
+dup
+send say "你好"
+utter                         # Stream → Utter（唯一转换）
+append                        # Utter → 追加进 agent 会话
+```
+
+流是**惰性、逐块**的，可以自己拉（REQ-08 / REQ-36）：
+
+```breve
+agent "coder" { }
+@on @Chunk [ show ]           # 每块到达即打印（到达即 flush）
+send say "数到三，用空格分隔"
+drain                         # → 全文
+```
+
+广播（带可选域，支持 `*` / `?`，缺省全部未注销 agent，REQ-15）：
+
+```breve
+agent "coder1" { }
+agent "coder2" { }
+agent "reviewer" { }
+bcast say "hi" { "coder*" }   # → list Stream（2 个）
+```
+
+真机 provider：把密钥放进 `secrets/nvidia.key`（已在 `.gitignore`，不入库）或 `NVIDIA_API_KEY`；
+`RB_LLM=mock` 走离线确定性 provider，`RB_MODEL` 换模型。`make test` 全程离线，
+`bash tests/e2e/agent.sh` 才是真机验收（无密钥自动跳过）。
 
 ## 目录
 

@@ -90,7 +90,24 @@
     "now" "rb/now"
     "env" "rb/env"
     "see" "rb/see"
-    "doc" "rb/doc"})
+    "doc" "rb/doc"
+    # L3 消息流（M3）
+    "append" "rb/append"
+    "session" "rb/session"
+    "send" "rb/send"
+    "resend" "rb/resend"
+    "bcast" "rb/bcast"
+    # L4 名字与 agent（M3）
+    "agent" "rb/agent"
+    "origin" "rb/origin"
+    "unsubscribe" "rb/unsubscribe"
+    # L8 钩子与流（M3）
+    "@on" "rb/hook-on"
+    "@off" "rb/hook-off"
+    "next" "rb/next"
+    "drain" "rb/drain"
+    "utter" "rb/utter"
+    "stop" "rb/stop"})
 
 (def rb/literals @{"true" "true" "false" "false" "nil" "nil"})
 
@@ -101,10 +118,13 @@
   "把一个方言词名转译为宿主调用形式。"
   [name]
   (def host (get rb/rename name))
+  (def lit (get rb/literals name))
   (cond
     (not (nil? host)) (string "(" host ")")
     (rb/dict? name) (string "(rb/call-word " (rb/render name) ")")
-    (not (nil? (get rb/literals name))) (string "(rb/push " name ")")
+    (not (nil? lit)) (string "(rb/push " lit ")")
+    # 事件名（REQ-16 / REQ-17）：`@Start` … `@RoundDone` 是**字面记号**，压栈即值
+    (rb/event? name) (string "(rb/push " (rb/render name) ")")
     (rb/raise (rb/exit-table :syntax-unknown-word) (string "未知的词：" name))))
 
 (defn rb/lit-code

@@ -5,9 +5,9 @@
 # 转译产物是**可打印的宿主序文本**（REQ-31：可 dump / 可 log）。
 
 (defn rb/new-env
-  "新建一个工作区环境：自带一份数据栈（REQ-30：栈 = 工作区的变量空间）。"
+  "新建一个工作区环境：自带一份数据栈（REQ-30：栈 = 工作区的变量空间）+ 一张钩子表。"
   []
-  (table/setproto @{:rb-stack @[]} (curenv)))
+  (table/setproto @{:rb-stack @[] :rb-ws (rb/ws-new)} (curenv)))
 
 (defn rb/compile-source
   "源文本 → {:code 宿主序文本 :nstmt 语句数}；不执行。"
@@ -37,6 +37,8 @@
   (def fb (fiber/new thunk :e e))
   (def res (resume fb))
   (def err? (= (fiber/status fb) :error))
+  # REQ-18：一轮正常结束 → 触发 @RoundDone（失败/中断不算「完成」）
+  (if err? (rb/round-abort e) (rb/round-finish e))
   {:ok (not err?)
    :value (if err? nil res)
    :error (if err? (fiber/last-value fb) nil)

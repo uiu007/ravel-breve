@@ -68,3 +68,49 @@
   "取转译产物文本（REQ-31）。"
   [src]
   ((rb/compile-source src "test") :code))
+
+# ---- 工作区（M3：agent / stream / 钩子需要同一份工作区跨步骤）----
+
+(defn new-ws
+  "新建一个工作区环境（相当于一次 `ravel` 会话）。"
+  []
+  (rb/new-env))
+
+(defn run-in
+  "在给定工作区里跑源码（一次 = 一轮 = 触发 @RoundDone）。"
+  [env src]
+  (try (rb/run-source src "test" env) ([e] {:ok false :error e :stack @[]})))
+
+(defn eval-stack-in
+  "同 eval-stack，但复用给定工作区。"
+  [env src]
+  (def r (run-in env src))
+  (if (r :ok) (tup (r :stack)) [:__error__ (rb/error-msg (r :error))]))
+
+(defn ws-hooks
+  "某工作区的钩子表（事件名 → 数组）。"
+  [env]
+  ((env :rb-ws) :hooks))
+
+(defn hook-on-in
+  "在给定工作区上挂一个 janet 钩子（等价于方言里的 @on；用于观察时序）。"
+  [env ev f]
+  (def h (ws-hooks env))
+  (def a (or (get h ev) (let [x @[]] (put h ev x) x)))
+  (array/push a f))
+
+(defn hook-count-in
+  [env ev]
+  (def a (get (ws-hooks env) ev))
+  (if a (length a) 0))
+
+(defn ws-agents
+  [env]
+  ((env :rb-ws) :agents))
+
+(defn in-env
+  "在给定工作区环境里运行一个 janet thunk（让 rb/push 等能取到数据栈）。"
+  [env f]
+  (def fb (fiber/new f :e env))
+  (resume fb)
+  fb)

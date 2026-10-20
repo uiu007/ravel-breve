@@ -3,6 +3,8 @@
 set -uo pipefail
 
 RAVEL=./bin/ravel
+export RB_LLM="${RB_LLM:-mock}"          # 端到端测试一律离线（M3）
+export RB_MOCK_REPLY="${RB_MOCK_REPLY:-abcdefgh}"
 pass=0
 fail=0
 
@@ -12,6 +14,15 @@ check() { # check <说明> <期望> <实际>
   else
     fail=$((fail + 1))
     printf '  ✗ %s\n     期望: %s\n     实际: %s\n' "$1" "$2" "$3"
+  fi
+}
+
+check_has() { # check_has <说明> <期望子串> <文件>
+  if grep -qF -- "$2" "$3"; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    printf '  ✗ %s\n     期望包含: %s\n     实际: %s\n' "$1" "$2" "$(cat "$3")"
   fi
 }
 
@@ -66,6 +77,41 @@ check "--serve 字典跨请求保留（REQ-42）" \
 check "--serve 错误带退出码" \
       '{"code":20,"error":"未知的词：nope","ok":false,"type":"result"}' \
       "$(printf 'nope\n' | $RAVEL --serve | head -1)"
+
+# M3：agent / 流 / 钩子（离线 provider）
+check_rc "agent：建 agent 并压栈" 0 $RAVEL -e 'agent "c" { }'
+check "agent：渲染形态" \
+      '@{:kind :agent :label "c" :live true :origin () :session @[] :turn 0}' \
+      "$(cat /tmp/rb-e2e-out)"
+# 一轮结束时默认钩子才把回复并回会话（REQ-18）→ 用 --serve 跨两行观察
+check_rc "agent：send + 收尾钩子自动合并" 0 bash -c "printf 'agent \"c\" { }\ndup\nsend say \"hi\"\npop\nsession\n' | $RAVEL --serve"
+check_has "agent：会话含用户消息与回复" \
+      '@[@{:content \"hi\" :role \"user\"} @{:content \"abcdefgh\" :role \"assistant\"}]' \
+      /tmp/rb-e2e-out
+check_rc "agent：@off @RoundDone 关闭自动合并" 0 $RAVEL -e 'agent "c" { }
+@off @RoundDone
+dup
+send say "hi"
+utter
+append
+session'
+check "agent：手动路径也能合并（REQ-19/46）" \
+      '@[@{:content "hi" :role "user"} @{:content "abcdefgh" :role "assistant"}]' \
+      "$(cat /tmp/rb-e2e-out)"
+check_rc "流：drain 得到全文" 0 $RAVEL -e 'agent "c" { }
+@off @RoundDone
+send say "问"
+drain'
+check "流：drain 输出" '"abcdefgh"' "$(cat /tmp/rb-e2e-out)"
+check_rc "钩子：@on @Chunk 逐块观察" 0 $RAVEL -e 'agent "c" { }
+@on @Chunk [ show ]
+send say "问"
+drain'
+check "钩子：四块都观察到了" 'ab cd ef gh' \
+      "$(grep -v '"abcdefgh"' /tmp/rb-e2e-out | tr -d '\n' | sed 's/"//g' | sed 's/\(..\)/\1 /g; s/ $//')"
+check_rc "渲染：中文不转义" 0 $RAVEL -e '"你好"'
+check "渲染：保留 UTF-8（D-32）" '"你好"' "$(cat /tmp/rb-e2e-out)"
+check_rc "流：未知事件名 → 20" 20 $RAVEL -e '@on @Nope [ 1 ]'
 
 echo "端到端：通过 $pass，失败 $fail"
 [ "$fail" -eq 0 ]

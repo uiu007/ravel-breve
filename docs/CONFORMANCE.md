@@ -1,7 +1,7 @@
 # 符合性矩阵（REQ ↔ 测试）
 
 依据规格：**`ravel-breve-spec-v1.0c.md`**（修订定稿）；`ravel-breve-spec-v1.0b.md` 为历史原文。
-状态：**M2**（词表 L0–L5 已落地）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+状态：**M3**（词表 L0–L8 + agent / 流 / 钩子 / 收尾已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**（见文末）。
 
@@ -41,20 +41,20 @@
 
 | REQ | 内容 | 状态 | 备注 |
 |---|---|---|---|
-| REQ-06 | 结构类型 String/Utter/Session/Stream/Json | ✅（Stream 除外） | `conformance/req-06-07-types.janet` |
+| REQ-06 | 结构类型 String/Utter/Session/Stream/Json | ✅ | `conformance/req-06-07-types.janet`、`unit/stream.janet` |
 | REQ-07 | 包装类型 Head/Endpoint/Path/Event/Workspace | ✅（负面；Ws 待 M4） | `conformance/req-06-07-types.janet` |
-| REQ-08 | Stream 独立类型，chunk 到达即 flush | ⏳ M3 | |
+| REQ-08 | Stream 独立类型，chunk 到达即 flush | ✅ | `conformance/req-08-stream.janet`、`unit/stream.janet` |
 | REQ-09 | 词表分层 L0–L9，一名一词性 | ✅ | `conformance/req-09-word-table.janet` |
 | REQ-10 | Session 复用 L1 多态序列词，无会话编辑词 | ✅ | `conformance/req-10-session-polymorphism.janet` |
 | REQ-11 | `,` / `,,` 为多态 join；`take`/`drop` 四象限 | ✅ | `conformance/req-11-join.janet`、`unit/words-l1.janet` |
-| REQ-12 | 单 agent 活会话只可 append | ⏳ M3 | |
-| REQ-13 | 改序/重编排 → 新 Session + 新 agent | ⏳ M3 | |
+| REQ-12 | 单 agent 活会话只可 append | ✅ | `conformance/req-12-13-agent.janet` |
+| REQ-13 | 改序/重编排 → 新 Session + 新 agent | ✅ | `conformance/req-12-13-agent.janet` |
 | REQ-14 | 来源树不进词表，仅保留 `origin` | ✅（负面） | `req-37`：`agents`/`focus`/`tree` 不得出现在词表 |
-| REQ-15 | 广播可带域（含 `*`/`?` 通配） | ⏳ M3 | |
-| REQ-16 | 钩子注册/注销 `@on`/`@off` | ⏳ M3 | |
-| REQ-17 | 8 个事件名 | ⏳ M3 | |
-| REQ-18 | 默认回合收尾钩子（@RoundDone）逐 stream 四步：解析绑定→转 utter→append→退订/删 stream | ⏳ M3 | |
-| REQ-19 | `@off @RoundDone` 可禁用 | ⏳ M3 | |
+| REQ-15 | 广播可带域（含 `*`/`?` 通配） | ✅ | `conformance/req-15-bcast.janet` |
+| REQ-16 | 钩子注册/注销 `@on`/`@off` | ✅ | `conformance/req-16-19-hooks.janet`、`unit/events.janet` |
+| REQ-17 | 8 个事件名 | ✅ | `conformance/req-16-19-hooks.janet`、`unit/events.janet` |
+| REQ-18 | 默认回合收尾钩子（@RoundDone）逐 stream 四步：解析绑定→转 utter→append→退订/删 stream | ✅ | `conformance/req-45-46-round.janet`（D-30：中断则本轮作废） |
+| REQ-19 | `@off @RoundDone` 可禁用 | ✅ | `conformance/req-16-19-hooks.janet` |
 | REQ-20 | 版本化 JSON 快照 + JSONL 增量日志 | ⏳ M4 | 格式待 CHK-4 冻结 |
 | REQ-21 | compact 三条件（0.5 倍 / 1000 条 / 显式） | ⏳ M4 | |
 | REQ-25 | 元命令为无前缀裸词（保留名表） | ✅（保留名表；分发待 M5） | `conformance/req-25-meta-commands.janet` |
@@ -62,9 +62,9 @@
 | REQ-27 | 主 buffer 为会话视图 | ⏳ M7 | 前端 |
 | REQ-28 | `show` 普通打印；`watch` 语法糖 | ⏳ M5 | |
 | REQ-29 | 按键 `t`/`s`/`c` | ⏳ M7 | 前端（Emacs 优先） |
-| REQ-36 | Stream ≡ fiber，chunk 一次 yield | ⏳ M3 | |
+| REQ-36 | Stream ≡ fiber，chunk 一次 yield | ✅ | `conformance/req-45-46-round.janet`（两流交错推进）、`unit/stream.janet` |
 
-## v1.0c 新增 REQ（39–44）
+## v1.0c 新增 REQ（39–46）
 
 | REQ | 内容 | 状态 | 测试 |
 |---|---|---|---|
@@ -74,8 +74,8 @@
 | REQ-42 | `--serve`：工作区（字典 + 栈）跨请求保留 / 失败不终止 / EOF→0 | ✅ | `e2e/cli.sh` |
 | REQ-43 | NDJSON 最小 schema（附录 F） | ✅（最小集） | `e2e/cli.sh` |
 | REQ-44 | 字面量是数据、引号是代码（`{ }`/`H{ }` 不参与镜像） | ✅ | `conformance/req-44-literal.janet`、`unit/literals.janet` |
-| REQ-45 | 一轮 = `list Stream`；stream 携带标签绑定 | ⏳ M3 | 待 M3 实现后补 `conformance/req-45-round-streams.janet` |
-| REQ-46 | `Stream → Utter` 显式转换；自动/手动路径共用 | ⏳ M3 | 待 M3 实现后补 `conformance/req-46-utter.janet` |
+| REQ-45 | 一轮 = `list Stream`；stream 携带标签绑定 | ✅ | `conformance/req-45-46-round.janet`、`unit/stream.janet`（建流即登记） |
+| REQ-46 | `Stream → Utter` 显式转换；自动/手动路径共用 | ✅ | `conformance/req-45-46-round.janet`、`conformance/req-16-19-hooks.janet`、`unit/stream.janet` |
 
 ## 附录 D：核心规模与禁止项
 
@@ -111,3 +111,61 @@
 `fold [ - ] 0 { 1 2 3 4 }` 即 `- 累加值 元素` → `-10`。
 直接推论：**栈上已有的值只能落在最右操作数位置**。
 计数循环也只写波兰式：`1 2 3` → `while [ < 1 depth ] [ + ]`（`< 1 depth`，即 1 小于 depth 时继续）。
+
+## M3 词表覆盖（agent / 流 / 钩子 / 收尾）
+
+| 层 | 词 | 栈效应 | 用例 |
+|---|---|---|---|
+| L3 | `append` | `Utter Agent -- Agent` | C:req-12-13-agent |
+| L3 | `session` | `Agent -- Session` | C:req-12-13-agent |
+| L3 | `send` | `Utter Agent -- Stream` | C:req-45-46-round、C:req-08-stream |
+| L3 | `resend` | `Utter Agent -- Stream` | C:req-12-13-agent（注销后报 31） |
+| L3 | `bcast` | `Utter Domain -- list Stream` | C:req-15-bcast |
+| L4 | `agent` | `Lab Session -- Agent`（`Lab` 可省） | C:req-12-13-agent |
+| L4 | `origin` | `Agent -- origin` | U:agent |
+| L4 | `unsubscribe` | `Agent -- Agent`（标记注销） | C:req-15-bcast |
+| L8 | `@on` | `Event Quote -- ` | C:req-16-19-hooks |
+| L8 | `@off` | `Event [Quote] -- ` | C:req-16-19-hooks |
+| L8 | `next` | `Stream -- Chunk\|nil`（消耗） | C:req-45-46-round |
+| L8 | `drain` | `Stream -- String` | C:req-08-stream |
+| L8 | `utter` | `Stream -- Utter` | C:req-45-46-round |
+| L8 | `stop` | `Stream -- Stream` | C:req-45-46-round |
+| — | 事件名 `@Start` `@Chunk` `@Fail` `@Error` `@Close` `@Toolcall` `@Done` `@RoundDone` | 字面量 | C:req-16-19-hooks |
+
+**词形次序**（D-26）：消息在前、目标在后（`Utter` 是最左实参 = 栈顶）。
+理由见 D-18 推论：栈上已有的值只能落在最右操作数位置，而 agent 是栈上的变量（REQ-30）。
+
+**自动路径 vs 手动路径**（REQ-18 / REQ-19 / REQ-46）：
+
+```breve
+# 自动：一轮结束时默认 @RoundDone 做 ①..④
+agent "c" { }
+dup
+send say "你好"
+pop
+session
+```
+
+```breve
+# 手动：关掉默认钩子，自己 utter + append
+agent "c" { }
+@off @RoundDone
+dup
+send say "你好"
+utter
+append
+```
+
+两条路径的会话**逐条相同**（`C:req-16-19-hooks` 断言）。
+
+## 能力层（M3）
+
+| 能力 | 文件 | 说明 |
+|---|---|---|
+| `:llm/chat` | `cap/llm.janet` | 按 `RB_LLM`（`mock`/`nvidia`/`auto`）派发 |
+| `:json/encode` `:json/decode` | `cap/json.janet` | 唯一 JSON 实现（D-08） |
+| `:http/post-lines` | `cap/http.janet` | FIFO + `curl -N`（D-28，核心不含） |
+| mock provider | `cap/mock.janet` | 离线、确定；`RB_MOCK_REPLY`，按 UTF-8 字符切块（D-31） |
+| NVIDIA provider | `cap/nvidia.janet` | OpenAI 兼容 SSE；`RB_MODEL` / `RB_ENDPOINT` / `RB_HTTP_TIMEOUT` |
+
+真机验收：`bash tests/e2e/agent.sh`（无密钥则自动跳过；坏密钥 → 退出码 60，D-27）。

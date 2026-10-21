@@ -60,3 +60,15 @@
                                    "  c5f\n"
                                    "  * ] ]\n"
                                    "c5f 5")))))
+
+(deftest "REQ-35：定义行可带文档串（名字 : \"说明\" [ 体 ]，D-52）"
+  (fn []
+    (def env (new-ws))
+    (run-in env "c5g : \"翻倍\" [ * 2 ]")
+    (is= 8 (val-in env (fn []
+                           (rb/run-source "c5g 4" "test" env)
+                           (last (rb/stack)))))
+    (is= "翻倍" (val-in env (fn [] ((rb/dict-entry "c5g") :doc))))
+    # 三 token 的老形式仍然可用，且 doc 为空串
+    (run-in env "c5h : [ * 3 ]")
+    (is= "" (val-in env (fn [] ((rb/dict-entry "c5h") :doc))))))

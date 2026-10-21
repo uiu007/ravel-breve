@@ -222,17 +222,28 @@
        (= ((toks 1) :value) ":")
        (= ((toks 2) :kind) :block)))
 
+(defn rb/def-doc?
+  "带文档串的定义行 = `名字 : \"说明\" [ 体 ]`（D-52）。"
+  [toks]
+  (and (= (length toks) 4)
+       (= ((toks 0) :kind) :word)
+       (= ((toks 1) :kind) :word)
+       (= ((toks 1) :value) ":")
+       (= ((toks 2) :kind) :str)
+       (= ((toks 3) :kind) :block)))
+
 (defn rb/translate-def
   "元层特例：`名字 : [ 体 ]`（REQ-33/34）。
    同时产出两份文本：宿主序（执行用，D-35）与 ravel 源（see/快照用，D-34）。"
   [toks &opt dict]
   (def name ((toks 0) :value))
-  (def body ((toks 2) :tokens))
+  (def doc (if (rb/def-doc? toks) ((toks 2) :value) nil))
+  (def body ((if (rb/def-doc? toks) (toks 3) (toks 2)) :tokens))
   (def body-src (rb/tokens->src body))
   # 先占位再转译体：体内的**自引用**（递归）在转译期就能解析到（D-51）
   (rb/dict-declare name body-src dict)
   (def body-code (string "(fn [] " (rb/translate-stmts body dict) ")"))
-  (string "(rb/define-word " (rb/render name) " " body-code " nil "
+  (string "(rb/define-word " (rb/render name) " " body-code " " (rb/render doc) " "
           (rb/render body-src) " " (rb/render body-code) ")"))
 
 (def rb/stack-variants
@@ -253,7 +264,7 @@
   "一条语句 → 形式文本数组（定义行是元层，不参与镜像）。"
   [toks &opt dict]
   (cond
-    (rb/definition? toks) @[(rb/translate-def toks dict)]
+    (or (rb/definition? toks) (rb/def-doc? toks)) @[(rb/translate-def toks dict)]
     (let [v (get rb/stack-variants ((toks 0) :value))]
       (and v (rb/stack-form? toks v)))
     (do

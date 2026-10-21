@@ -489,3 +489,14 @@ fact 5                     # 120
 **记录**：SF-29（规格缺「条件已算成值」的写法与递归说明）。
 
 **验收**：`unit/words-l5.janet`（栈上形式 + 递归）、`conformance/req-05-definition.janet`（自引用）。
+
+## D-52 定义行可带文档串（`名字 : "说明" [ 体 ]`）
+
+- **问题**：字典里本来就有 `:doc` 字段，REQ-35 也说 `doc` / `see` 从字典读，但**没有语法**能写文档串——
+  `doc` 永远是空串。
+- **决定**：定义行接受两种形式：
+  - `名字 : [ 体 ]`（REQ-34 的三 token 原形，`doc` 为空串）；
+  - `名字 : "说明" [ 体 ]`（四 token，把说明交给 `rb/define-word`）。
+  判据在转译期（`rb/def-doc?`），运行期无歧义；三 token 形式**完全不变**。
+- **记录**：SF-30（建议把四 token 形式写进 REQ-34）。
+- **验收**：`conformance/req-05-definition.janet`。

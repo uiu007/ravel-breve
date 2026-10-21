@@ -177,7 +177,7 @@ invoke "add2" H{ "a" 40 }          # 42（手动调用；自动执行由 @Toolca
 ## 前后端分离与协议（M5）
 
 编辑器只是前端（渲染 + 输入），`ravel --serve` 是唯一求值者，两者用 **NDJSON over stdio**（协议 v1，
-见 `docs/PROTOCOL.md`）：
+见 `docs/PROTOCOL.md`、`docs/FRONTEND.md`）：
 
 ```sh
 $ printf '%s\n' '{"type":"ping"}' 'agent "c" { }' '{"type":"eval","src":"+ 1 2","id":7}' | ravel --serve
@@ -212,5 +212,6 @@ docs/             符合性矩阵、决策记录、协议草案、规格反馈
 |---|---|
 | `docs/CONFORMANCE.md` | REQ ↔ 测试矩阵（每条 REQ 的可执行验收） |
 | `docs/DECISIONS.md` | 规格未冻结处的实现决策（D-xx） |
-| `docs/PROTOCOL.md` | NDJSON over stdio 协议草案（CHK-5 冻结） |
+| `docs/PROTOCOL.md` | NDJSON over stdio 协议 v1（M5 冻结） |
+| `docs/FRONTEND.md` | 前端契约：REQ-26/27/29 ↔ 协议动作表（M7，编辑器侧） |
 | `docs/SPEC-FEEDBACK.md` | 规格缺陷与待裁决项（CHK-1…CHK-6） |

@@ -24,14 +24,44 @@
   []
   (tuple ;((rb/ws) :round)))
 
+(defn rb/round-superseded?
+  "s 是否已被**同一 agent 的更新的流**取代（REQ-49：重试 = 新流换旧流）。
+   依据 = 本轮列表的创建顺序。"
+  [s ss]
+  (var seen false)
+  (var hit false)
+  (each x ss
+    (cond
+      (= x s) (set seen true)
+      (and seen (= (x :agent) (s :agent))) (set hit true)))
+  hit)
+
+(defn rb/round-stream-utter
+  "② Stream → Utter；失败时若有 `onfail` 回退引号，用它的产物作为替代回复（REQ-51）。
+   失败但已被同一 agent 的新流取代（重试）→ 返回 nil，调用方跳过（REQ-49）。"
+  [a s]
+  (def p (protect (rb/stream->utter! s)))
+  (if (get p 0)
+    (get p 1)
+    (if (rb/round-superseded? s (tuple ;((rb/ws) :round)))
+      (do (rb/round-drop! s) nil)
+      (do
+        (def q (a :onfail))
+        (if (nil? q)
+          (rb/stream-fail-error! s)    # 没有回退 → 沿用 D-27 的错误
+          (do
+            (rb/push (get p 1))
+            (q)
+            @{:role "assistant" :content (string (rb/pop))}))))))
+
 (set rb/default-round-done
      (fn []
        (def ss (rb/pop))
        (each s ss
-         (when (rb/stream? s)
+         (when (and (rb/stream? s) (not (rb/round-superseded? s ss)))
            (def a (rb/agent-ensure (s :agent)))  # ① 绑定（预解析）
-           (def u (rb/stream->utter! s))          # ② Stream → Utter
-           (rb/agent-append! a u)                 # ③ append
+           (def u (rb/round-stream-utter a s))    # ② Stream → Utter（含 onfail）
+           (when (not (nil? u)) (rb/agent-append! a u))  # ③ append
            (rb/round-drop! s)))))                 # ④ 退订并删去
 
 (defn rb/round-abort
@@ -47,13 +77,33 @@
    只在本轮成功结束时调用（REQ-18：工具调用中断代表本轮未完成）。"
   [env]
   (def ws (get env :rb-ws))
-  (when (and ws (not (empty? (ws :round))))
-    (def ss (tuple ;(ws :round)))
-    (def fb (fiber/new (fn [] (rb/emit "@RoundDone" [ss])) :e env))
-    (resume fb)
-    (when (= (fiber/status fb) :error)
-      (def e (fiber/last-value fb))
-      (rb/raise (if (rb/rb-error? e) (get e :rb-code) (rb/exit-table :orchestration-base))
-                (string "@RoundDone 失败：" (rb/error-msg e))))
+  (when ws
+    # 一趟钩子可能再产出流（REQ-49 的重试），故循环到列表空；上限防死循环
+    (var pass 0)
+    (var rev -1)
+    # 一趟之后列表没变（钩子关了、没人认领）→ 结束，别空转（REQ-19）
+    (while (and (not (empty? (ws :round)))
+                (not= (ws :round-rev) rev)
+                (< pass 64))
+      (set rev (ws :round-rev))
+      (++ pass)
+      # REQ-48：有流停在「待外部动作」= 本轮未完成 → 不触发 @RoundDone
+      (def frozen @[])
+      (each s (ws :round) (when (= (s :state) :tool) (array/push frozen s)))
+      (when (not (empty? frozen))
+        (array/clear (ws :round))
+        (rb/raise (rb/exit-table :orchestration-base)
+                  "本轮未完成：工具调用停在待外部动作状态（REQ-48，用 invoke + append + resend 接管）"))
+      (def ss (tuple ;(ws :round)))
+      (def fb (fiber/new (fn [] (rb/emit "@RoundDone" [ss])) :e env))
+      (resume fb)
+      (when (= (fiber/status fb) :error)
+        (def e (fiber/last-value fb))
+        (rb/raise (if (rb/rb-error? e) (get e :rb-code) (rb/exit-table :orchestration-base))
+                  (string "@RoundDone 失败：" (rb/error-msg e)))))
+    (when (>= pass 64)
+      (array/clear (ws :round))
+      (rb/raise (rb/exit-table :orchestration-base)
+                "本轮收尾超过 64 趟：钩子里可能无限重试（REQ-49）"))
     (array/clear (ws :round)))
   nil)

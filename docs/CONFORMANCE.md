@@ -1,9 +1,11 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0c.md`**（修订定稿）；`ravel-breve-spec-v1.0b.md` 为历史原文。
-状态：**M5**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+依据规格：**`ravel-breve-spec-v1.0d.md`**（agent 基本能力定稿，待 CHK-6 追认）；
+`ravel-breve-spec-v1.0c.md` / `ravel-breve-spec-v1.0b.md` 为历史原文。
+状态：**M6**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
-> 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**（见文末）。
+> 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
+> v1.0d 新增 **REQ-47…REQ-51**（见文末）。
 
 跑法：`make test`（单元 + 符合性 + 端到端 + 附录 D）。
 
@@ -233,3 +235,20 @@ x 21         # → 42（注意：载入进来的词要下一轮才解析得到�
 | NVIDIA provider | `cap/nvidia.janet` | OpenAI 兼容 SSE；`RB_MODEL` / `RB_ENDPOINT` / `RB_HTTP_TIMEOUT` |
 
 真机验收：`bash tests/e2e/agent.sh`（无密钥则自动跳过；坏密钥 → 退出码 60，D-27）。
+
+## v1.0d 新增 REQ（47–51）：agent 的基本能力
+
+主题边界：**只补能力，不改语法/执行模型/状态模型/协议骨架**。
+验收标准：每项能力都必须由「词 + 钩子 + 流 + 工作区的表」组合出来（§0）。
+
+| REQ | 内容 | 状态 | 测试 |
+|---|---|---|---|
+| REQ-47 | 角色只是 `Utter` 的字段；`saysys` 糖；`Utter "tool" "x"` 可造任意角色；不新增类型 | ✅ | `conformance/req-47-51-capabilities.janet` |
+| REQ-48 | 工具调用：`deftool` / `invoke` / `@Toolcall` / 同一条流继续 / `@off` 后冻结为 `:tool` | ✅ | `conformance/req-47-51-capabilities.janet`、`e2e/cli.sh`（协议 `event`） |
+| REQ-49 | 重试在钩子层；`@Fail` 载荷 `Fail Stream`；`resend` 接受 Agent 或 Stream；不装钩子不重试 | ✅ | `conformance/req-47-51-capabilities.janet` |
+| REQ-50 | 上下文压缩在钩子层；标准写法 = `take` + `saysys` + 新 `agent`；核心不内置算法 | ✅ | `conformance/req-47-51-capabilities.janet` |
+| REQ-51 | 编排边：`->` 血缘、`onfail` 失败回退、`subscribe` 恢复缺省广播域 | ✅ | `conformance/req-47-51-capabilities.janet` |
+| — | `seq` / `par` | ❓ 未冻结 | SF-25（不实现：无栈效应/无结果定义） |
+
+决策记录：D-45（工具循环）· D-46（`:tool` 冻结）· D-47（`onfail` / `->` / `subscribe`）·
+D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。

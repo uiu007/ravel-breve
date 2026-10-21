@@ -34,6 +34,39 @@
                             :ok (not= (s :state) :failed)})
     nil))
 
+# ---- 事件旁路（REQ-17 / REQ-48 / 附录 F）---------------------------------
+
+(defn rb/proto-event
+  "事件旁路（由 rb/cli.janet 装进 `rb/event-tap`）。
+   只把 `@Toolcall` 这类带流的事件推给前端（附录 F 的 event 消息形状）。
+   载荷形状不够就退化成 `text` = 名称，绝不因为编码失败打断求值。"
+  [name payload]
+  # 只推 `@Toolcall`：其余事件（@Start/@Chunk/@Close…）已有专门消息，
+  # 再发一条 event 只会让前端重复计数（D-45）。
+  (when (and rb/proto-sink (= name "@Toolcall"))
+    (def call (first payload))
+    (def stream (if (> (length payload) 1) (payload 1) nil))
+    (def enc (protect (rb/cap-get :json/encode)))
+    (def encode (if (get enc 0) (get enc 1) nil))
+    (def part (fn [x]
+                (cond
+                  (string? x) x
+                  (buffer? x) (string x)
+                  (and encode (not (nil? x))) (protect (encode x))
+                  nil)))
+    (def args-text
+      (cond
+        (not (table? call)) nil
+        (string? (call :arguments)) (call :arguments)
+        :else (let [r (part (call :arguments))]
+                (if (tuple? r) (if (get r 0) (get r 1) "") r))))
+    (rb/proto-emit @{:type "event"
+                      :name name
+                      :stream (if (table? stream) (string (stream :label)) nil)
+                      :text (if (table? call)
+                              (string (call :name) " " (or args-text ""))
+                              (string name))})))
+
 # ---- L9 视图流的推送（REQ-24「持续接收」/ REQ-28）------------------------
 
 (def rb/watch-tick-limit 64)

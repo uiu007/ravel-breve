@@ -127,6 +127,22 @@ check "REQ-24：推流之后仍继续收请求（id 3 有结果）" \
       '3' \
       "$(grep -o '"id":3' /tmp/rb-e2e-out | head -1 | grep -o '3')"
 
+# REQ-48：工具调用全链路 + 附录 F 的 event 消息
+export RB_MOCK_TOOL='add2:{"a":40}'
+printf '%s\n' \
+  '{"type":"eval","src":"deftool \"add2\" \"加二\" [ at \"a\"\n+ 2 ]"}' \
+  '{"type":"eval","src":"agent \"c\" { }\nsend say \"加二\"\ndrain\npop"}' \
+  '{"type":"quit"}' > /tmp/rb-e2e-tool
+check_rc "REQ-48：deftool + send + 工具循环跑完" 0 $RAVEL --serve < /tmp/rb-e2e-tool
+check_has "REQ-48：@Toolcall 变成协议 event 消息（附录 F）" \
+  '{"name":"@Toolcall","stream":"c","text":"add2 {\"a\":40}","type":"event"}' /tmp/rb-e2e-out
+check_has "REQ-48：工具结果之后同一条流继续吐文本（不开新流）" \
+  '{"n":0,"stream":"c","text":"ab","type":"chunk"}' /tmp/rb-e2e-out
+check "REQ-48：event 只发一次（不随事件风暴翻倍）" \
+  '1' \
+  "$(grep -cF '"type":"event"' /tmp/rb-e2e-out)"
+unset RB_MOCK_TOOL
+
 # --json（REQ-22「输出 JSON」）
 check_rc "--json 成功" 0 $RAVEL --json -e '+ 1 2'
 check "--json 输出一条协议消息" \

@@ -28,14 +28,23 @@
 # 让工作区可以在装载期就注册「默认钩子」，而实现可以稍后定义）。
 (var rb/default-round-done nil)
 
+# 默认工具调用钩子（REQ-48；实现在 rb/tools.janet，装载序更晚）
+(var rb/default-toolcall nil)
+
+# 事件旁路（REQ-43 的 `event` 消息）：serve 模式下把事件写成 NDJSON。
+(var rb/event-tap nil)
+
 (defn rb/ws-new
   "新建一个工作区状态（REQ-30：字典 + 钩子 + 活 agent + 本轮 stream 列表）。
    栈不在这里——它是 env 的 `:rb-stack`（同一工作区的「变量」那半）。"
   []
   @{:dict @{}
-    :hooks @{"@RoundDone" @[(fn [] (when rb/default-round-done (rb/default-round-done)))]}
+    :hooks @{"@RoundDone" @[(fn [] (when rb/default-round-done (rb/default-round-done)))]
+             "@Toolcall" @[(fn [] (when rb/default-toolcall (rb/default-toolcall)))]}
     :agents @[]
+    :tools @{}     # REQ-48：工具表（名字 → 描述 + 引号）
     :round @[]
+    :round-rev 0   # 本轮列表的版本号（新建流 +1；收尾据此判断「还在变」）
     :watch @[]     # L9 被 watch 的视图流（REQ-28）
     :path nil      # 持久化目标（nil = 不落盘；REQ-20）
     :seq 0         # 已写入日志的记录数
@@ -97,8 +106,8 @@
                   (string "钩子必须是引号，得到 " (type q))))
       (each v (reverse payload) (rb/push v))
       (q)
-      (rb/stack-truncate d0))
-    nil)
+      (rb/stack-truncate d0)))
+  (when rb/event-tap (rb/event-tap name payload))
   nil)
 
 (defn rb/hook-count

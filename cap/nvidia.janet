@@ -18,7 +18,9 @@
                          (do
                            (def env (os/getenv "RB_MAX_TOKENS"))
                            (if env (scan-number env) 512)))
-         :top_p 1}))
+         :top_p 1
+         # REQ-48：工具表非空才带 `tools`（空表 = 纯文本对话）
+         :tools (when (and (opts :tools) (> (length (opts :tools)) 0)) (opts :tools))}))
 
 (defn cap/nv-chunk-content
   "从一条 SSE 载荷里取增量文本；取不到返回 nil。"
@@ -43,6 +45,20 @@
             (def c (get delta "content"))
             (when (and (string? c) (not (empty? c))) c)))))))
 
+(defn cap/nv-tool-deltas
+  "从一条 SSE 载荷里取 `choices[0].delta.tool_calls`（增量片段）；没有则 nil。"
+  [dec payload]
+  (def j (protect (dec payload)))
+  (when (get j 0)
+    (def obj (get j 1))
+    (when (dictionary? obj)
+      (def choices (get obj "choices"))
+      (when (and choices (> (length choices) 0))
+        (def delta (get (choices 0) "delta"))
+        (when (dictionary? delta)
+          (def tcs (get delta "tool_calls"))
+          (when (and tcs (> (length tcs) 0)) tcs))))))
+
 (defn cap/nv-chat
   "messages opts → 取块函数"
   [messages opts]
@@ -63,6 +79,8 @@
                      "Content-Type" "application/json"
                      "Accept" "text/event-stream"}
                    (cap/nv-body messages opts)))
+  # 工具调用的增量累积（REQ-48）：index → {:id , :name , :args}
+  (def acc @{})
   (defn pull []
     (var go true)
     (var out nil)
@@ -79,6 +97,16 @@
             (empty? payload) nil
             (= payload "[DONE]") (set go false)
             (do
+              (each tc (or (cap/nv-tool-deltas dec payload) [])
+                (def idx (or (get tc "index") 0))
+                (def cur (or (get acc idx) @{:id "" :name "" :args ""}))
+                (when (get tc "id") (put cur :id (string (get tc "id"))))
+                (def f (get tc "function"))
+                (when (dictionary? f)
+                  (when (get f "name") (put cur :name (string (get f "name"))))
+                  (when (get f "arguments")
+                    (put cur :args (string (cur :args) (get f "arguments")))))
+                (put acc idx cur))
               (def c (cap/nv-chunk-content dec payload))
               (when c (set out c) (set go false)))))
         (string/has-prefix? ":" line) nil                # SSE 注释/心跳
@@ -92,7 +120,22 @@
             (when detail
               (rb/raise (rb/exit-table :orchestration-base)
                         (string "NVIDIA 接口报错：" (string (if (dictionary? detail) (or (get detail "message") detail) detail)))))))))
-    out)
+    (if (and (nil? out) (not (empty? acc)))
+      (do
+        (def calls @[])
+        (each idx (sort (keys acc))
+          (def cur (get acc idx))
+          (def a (protect (dec (cur :args))))
+          (array/push calls
+                      @{:id (cur :id)
+                        :name (cur :name)
+                        :arguments (if (get a 0) (get a 1) (cur :args))
+                        :raw @{"id" (cur :id)
+                               "type" "function"
+                               "function" @{"name" (cur :name)
+                                            "arguments" (cur :args)}}}))
+        @{:tool-calls (tuple ;calls)})
+      out))
   pull)
 
 (rb/cap-put :llm/nvidia cap/nv-chat)

@@ -68,5 +68,5 @@
 (deftest "events: 没有钩子的事件什么都不做"
   (fn []
     (def env (new-ws))
-    (in-env env (fn [] (rb/push 1) (rb/emit "@Toolcall" []) (rb/push 2)))
+    (in-env env (fn [] (rb/push 1) (rb/emit "@Unknown" []) (rb/push 2)))
     (is= (tup [1 2]) (tup (env :rb-stack)))))

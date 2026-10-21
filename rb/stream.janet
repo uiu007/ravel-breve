@@ -37,7 +37,9 @@
            :closed false
            :error nil
            :meta (or meta @{})})
-  (array/push ((rb/ws) :round) s)
+  (def ws (rb/ws))
+  (array/push (ws :round) s)
+  (put ws :round-rev (inc (ws :round-rev)))
   s)
 
 (defn rb/stream-close!
@@ -71,10 +73,16 @@
         (let [chunk (get p 1)]
           (cond
             (nil? chunk)
-            (if (s :watch)
+            (cond
+              # REQ-48：工具调用停下来的流 = 「待外部动作」，冻结而不是关闭
+              (= (s :state) :tool)
+              nil
+
               # L9 视图流（REQ-28）：取尽只是「暂时没有新条目」，不是结束——
               # 关掉它会让前端以为 agent 这一轮结束（REQ-08 的 close 语义）
+              (s :watch)
               nil
+
               (do
                 (put s :state :done)
                 (rb/emit "@Done" [s])
@@ -110,6 +118,10 @@
     (when (nil? (rb/stream-next! s)) (set go false)))
   (when (= (s :state) :failed)
     (rb/stream-fail-error! s))
+  # REQ-48：停在「待外部动作」的流没有文本可交，明确报 60 而不是静默返回 ""
+  (when (= (s :state) :tool)
+    (rb/raise (rb/exit-table :orchestration-base)
+              (string "流停在待外部动作（工具调用未处理，REQ-48）：" (s :label))))
   (string (s :text)))
 
 (defn rb/stream-stop!

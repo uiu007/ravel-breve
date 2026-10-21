@@ -29,9 +29,11 @@
   (rb/push (rb/stream-start a)))
 
 (defn rb/resend
-  "Agent -- Stream；按现有会话重发（不新增消息）。"
+  "Agent|Stream -- Stream；按现有会话重发（不新增消息）。
+   给 Stream 时取它的绑定 agent（REQ-49：失败重试写在钩子里，不必再解析标签）。"
   []
-  (def a (rb/agent-ensure (rb/pop)))
+  (def x (rb/pop))
+  (def a (if (rb/stream? x) (rb/agent-ensure (x :agent)) (rb/agent-ensure x)))
   (rb/push (rb/stream-start a @{:resend true})))
 
 (defn rb/bcast

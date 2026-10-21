@@ -98,11 +98,31 @@ take 2 "abcde"
 一轮输出结束（对应方言的 `@Close`）。`ok:false` 表示该流失败（前端应显示错误，
 但**本轮其他流仍会继续**）。`watch` 出来的视图流**不会**发 `close`（它是常驻观察者）。
 
-### 3.4 `pong` / `hello` / `bye`
+### 3.4 `event`（REQ-48 / 附录 F）
+
+```json
+{"name":"@Toolcall","stream":"c","text":"add2 {\"a\":40}","type":"event"}
+```
+
+后端在流里遇到需要前端/用户介入的钩子事件时立刻推一条。v1 只推 **`@Toolcall`**
+（模型发起的工具调用；其余事件已有 `chunk`/`close` 覆盖，重复推只会让前端双计）。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `type` | string | 恒为 `"event"` |
+| `name` | string | 事件名，v1 恒为 `"@Toolcall"` |
+| `stream` | string | 该事件所属流的标签 |
+| `text` | string | `<工具名> <参数 JSON 文本>`，人类可读 |
+
+自动执行 = `@Toolcall` 的**默认钩子**：工具跑完、结果以 `role:"tool"` 追加，
+**同一条流继续吐文本**。`@off @Toolcall` 之后事件照样推给前端，但工具不跑，
+流停在「待外部动作」—— 本轮不触发 `@RoundDone`，前端需自己 `invoke` + `append` + `resend` 接管。
+
+### 3.5 `pong` / `hello` / `bye`
 
 ```json
 {"protocol":1,"type":"pong"}
-{"protocol":1,"type":"hello","version":"ravel breve 1.0c · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0d · janet 1.42.1"}
 {"protocol":1,"type":"bye"}
 ```
 
@@ -119,7 +139,9 @@ take 2 "abcde"
    （以及每次求值间隙）以 `chunk` 推出，`stream` 字段 = 该 agent 标签。
    每次推送至多 64 块，宁可下一轮再推，也不让输入饿死。
 5. **方言输出不进 stdout**：`print`/`show` 写 stderr；要展示数据请用 `stack`/`watch`。
-6. **元命令不在协议里**（REQ-25）：`quit`/`exit`/`help`/`clear` 是**前端**的命令表。
+6. **工具调用**（REQ-48）：模型发起的调用 → `event` 消息（3.4）；默认钩子自动执行并
+   让**同一条流**继续，前端仍然只看到一条回复的 `chunk` 序列。
+7. **元命令不在协议里**（REQ-25）：`quit`/`exit`/`help`/`clear` 是**前端**的命令表。
    前端把它翻译成协议请求（如 `clear` → `{"type":"reset"}`），后端只认第 2 节的请求。
 
 ## 5. 一次会话的样子
@@ -156,9 +178,8 @@ send say "hi"
 
 | 项 | 原因 | 记录 |
 |---|---|---|
-| `cancel` / `subscribe` 请求 | 语义未定（`unsubscribe` 已占用一个名字，REQ-09） | SF-20 / SF-22 |
+| `cancel` 请求 | 语义未定（`unsubscribe` 已占用一个名字，REQ-09；v1.0d 的 `subscribe` 是**词**不是请求） | SF-20 / SF-22 |
 | 背压协商 | 视图推送用固定上限（64 块/轮）代替 | SF-22 |
-| `event` 消息（`@Toolcall` 等） | 钩子事件暂只在本进程内可见 | SF-22 |
 | 错误对象细分（行列号/源码片段） | 现有 `code` + `error` 足够驱动前端提示 | SF-22 |
 | 多会话/多工作区并发 | REQ-42 限定单工作区串行 | — |
 

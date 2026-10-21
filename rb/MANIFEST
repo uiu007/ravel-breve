@@ -9,6 +9,7 @@ rb/events.janet
 rb/dict.janet
 rb/stream.janet
 rb/agent.janet
+rb/tools.janet
 rb/translate.janet
 rb/words/l0.janet
 rb/words/l1.janet

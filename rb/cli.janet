@@ -14,7 +14,7 @@
 # 保留名表**不得**与词表重名（REQ-09：一个名字只有一种词性）——`watch` 是方言词
 # （L9），所以它不在这里。
 
-(def rb/version-string "ravel breve 1.0c · janet 1.42.1")
+(def rb/version-string "ravel breve 1.0d · janet 1.42.1")
 
 # REQ-25：保留的元命令名（无前缀裸词，均不是方言词）
 (def rb/meta-commands
@@ -218,6 +218,7 @@
                        (file/write stdout (string (encode msg) "\n"))
                        (file/flush stdout)))
   (set rb/stream-tap rb/proto-tap)
+  (set rb/event-tap rb/proto-event)   # REQ-48：`@Toolcall` 等事件推给前端
   (var running true)
   (var exit 0)
   (while running
@@ -267,6 +268,7 @@
           (when running (rb/watch-tick! env))))))
   (set rb/proto-sink nil)
   (set rb/stream-tap nil)
+  (set rb/event-tap nil)
   exit)
 
 # ---- 入口 ---------------------------------------------------------------

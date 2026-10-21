@@ -40,17 +40,57 @@
         (set i j))
       out)))
 
+(defn cap/mock-parse-tool
+  "RB_MOCK_TOOL = 工具名，或 工具名:{json参数}；返回一条调用或 nil。"
+  []
+  (def spec (os/getenv "RB_MOCK_TOOL"))
+  (if (nil? spec)
+    nil
+    (do
+      (def i (string/find ":" spec))
+      (if (nil? i)
+        @{:id "call_mock" :name spec :arguments @{}
+          :raw @{"id" "call_mock" "type" "function"
+                 "function" @{"name" spec "arguments" "{}"}}}
+        (do
+          (def name (string/slice spec 0 i))
+          (def argstr (string/slice spec (inc i)))
+          (def j (protect ((rb/cap-get :json/decode) argstr)))
+          (def args (if (get j 0) (get j 1) argstr))
+          @{:id "call_mock" :name name :arguments args
+            :raw @{"id" "call_mock" "type" "function"
+                   "function" @{"name" name "arguments" argstr}}})))))
+
+(defn cap/mock-chat-tools
+  "工具模式：会话里还没有 role=tool 的消息 → 先给一次工具调用，否则给文本。"
+  [messages opts text]
+  (def spec (cap/mock-parse-tool))
+  (def has-tool-result
+    (do
+      (var hit false)
+      (each m messages (when (= (get m :role) "tool") (set hit true)))
+      hit))
+  (if (and spec (not has-tool-result))
+    (do
+      (var sent false)
+      (fn []
+        (if sent
+          nil
+          (do (set sent true) @{:tool-calls (tuple ;[(cap/mock-parse-tool)])}))))
+    (do
+      (def chunks (cap/mock-chunks text))
+      (var i 0)
+      (fn []
+        (when (< i (length chunks))
+          (def c (chunks i))
+          (++ i)
+          c)))))
+
 (defn cap/mock-chat
   [messages opts]
   (def last-msg (if (empty? messages) @{:content ""} (last messages)))
   (def echo (string "回声：" (get last-msg :content "")))
   (def text (string (or (os/getenv "RB_MOCK_REPLY") echo)))
-  (def chunks (cap/mock-chunks text))
-  (var i 0)
-  (fn []
-    (when (< i (length chunks))
-      (def c (chunks i))
-      (++ i)
-      c)))
+  (cap/mock-chat-tools messages opts text))
 
 (rb/cap-put :llm/mock cap/mock-chat)

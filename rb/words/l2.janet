@@ -30,6 +30,11 @@
   []
   (rb/push @{:role "user" :content (rb/pop)}))
 
+(defn rb/saysys
+  "String -- Utter；role = \"system\"（REQ-47：system 只是角色字段，不是类型）"
+  []
+  (rb/push @{:role "system" :content (rb/pop)}))
+
 (defn rb/Role
   "Utter -- String"
   []

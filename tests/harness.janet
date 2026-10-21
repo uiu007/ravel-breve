@@ -87,6 +87,12 @@
   (def r (run-in env src))
   (if (r :ok) (tup (r :stack)) [:__error__ (rb/error-msg (r :error))]))
 
+(defn run-in-exit
+  "在给定工作区里跑源码，返回退出码（成功 0）。"
+  [env src]
+  (def r (run-in env src))
+  (if (r :ok) 0 (rb/error-code (r :error))))
+
 (defn eval-top-in
   "同 eval-top，但复用给定工作区。"
   [env src]

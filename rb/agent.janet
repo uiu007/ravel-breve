@@ -65,11 +65,19 @@
   a)
 
 (defn rb/messages-of
-  "Utter 序列 → provider 需要的消息数组（role / content 都是字符串）。"
+  "Utter 序列 → provider 需要的消息数组（role / content 都是字符串）。
+   REQ-48：带工具调用/结果的 utter 额外带 `tool_calls` / `tool_call_id`。"
   [a]
-  (map (fn [u] @{:role (string (get u :role ""))
-                  :content (string (get u :content ""))})
-       (a :session)))
+  (def out @[])
+  (each u (a :session)
+    (def m @{:role (string (get u :role ""))
+             :content (string (get u :content ""))})
+    (def tc (get u :tool-calls))
+    (when tc (put m :tool_calls tc))
+    (def tcid (get u :tool-call-id))
+    (when tcid (put m :tool_call_id tcid))
+    (array/push out m))
+  (tuple ;out))
 
 (defn rb/wild-match?
   "标签通配：`*` 任意串、`?` 单字符（REQ-15）。"
@@ -108,6 +116,10 @@
               "能力层未提供 :llm/chat（REQ-37：核心不含网络实现）"))
   (f messages opts))
 
+# 工具层的接入点（REQ-48）。装载序上 tools 在 agent 之后，故用间接层（同 D-29）。
+# `@{:wrap (fn [agent it opts] → it') , :defs (fn [] → tools|nil)}`
+(var rb/tool-hooks nil)
+
 (defn rb/stream-start
   "对某个 agent 发起一轮：产物是一个 Stream，绑定已在此预先解析（REQ-18 ①）。"
   [a &opt meta]
@@ -118,8 +130,16 @@
   (when (empty? messages)
     (rb/raise (rb/exit-table :orchestration-base)
               (string "会话为空，无法发起：" (a :label))))
-  (def it (rb/llm-chat messages @{:label (a :label) :agent a}))
-  (when (not (function? it))
+  (def opts @{:label (a :label) :agent a})
+  (when rb/tool-hooks
+    (def defs ((rb/tool-hooks :defs)))
+    (when defs (put opts :tools defs)))
+  (def it0 (rb/llm-chat messages opts))
+  (when (not (function? it0))
     (rb/raise (rb/exit-table :orchestration-base)
-              (string "provider 必须返回取块函数，得到 " (type it))))
-  (rb/stream-new (a :label) a it (or meta @{})))
+              (string "provider 必须返回取块函数，得到 " (type it0))))
+  # 先建流再装取块函数：工具循环的 `@Toolcall` 载荷要带流本体（REQ-48 ①）
+  (def s (rb/stream-new (a :label) a it0 (or meta @{})))
+  (when rb/tool-hooks
+    (put s :it ((rb/tool-hooks :wrap) a it0 opts s)))
+  s)

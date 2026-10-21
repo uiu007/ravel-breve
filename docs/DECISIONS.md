@@ -382,3 +382,60 @@
 - **选择**：保留 L4 的 `unsubscribe`（语义明确：注销出缺省广播域），**不实现** `subscribe`；
   L9 的「订阅」能力由 `watch` 覆盖（前端拿视图流）。
 - **记入反馈**：SF-20。
+
+## D-45 工具调用循环在**同一条流**里跑，默认钩子自动执行（M6 / REQ-48）
+
+- **形状**：`send` 时把 `rb/tool-defs` 塞进 provider 请求的 `tools`；模型返回工具调用时
+  ①发 `@Toolcall`（载荷 `Call Stream`）②本轮不触发 `@RoundDone` ③结果以 `role:"tool"`
+  追加 ④**重发同一个 Stream**继续吐文本。
+- **默认执行 = `@Toolcall` 上的默认钩子**：跑工具 → 追加 `tool` 消息 → 让流继续。
+  `@off @Toolcall` 之后事件照发、工具不跑，流冻在 `:tool`（D-46）。
+- **为什么不开新流**：前端看到「一条回复」比「一条回复 + 一条工具回显」自然，
+  且符合 REQ-45「一轮 = list Stream」的最小改动。
+- **会话四段**：`user` → `assistant(tool_calls)` → `tool` → `assistant`。
+  其中 `assistant(tool_calls)` 存的是 **provider 的原始形状**（OpenAI 兼容的字符串键表），
+  这样回放给 provider 时不用再翻译。
+- **协议**：`@Toolcall` 单发一条 `event` 消息（`docs/PROTOCOL.md` 3.4），
+  其余钩子事件不推（`chunk`/`close` 已覆盖，重复推会让前端双计）。
+- **验收**：`C:req-47-51-capabilities`（mock 全链路）、`e2e/cli.sh`（协议 event）。
+
+## D-46 停在工具调用上的流 = 状态 `:tool`（冻结，不 close）（M6 / REQ-48）
+
+- **状态机**：`:new → :open → :done | :failed | :stopped`，新增 **`:tool`**。
+- **`@off @Toolcall` 后**：流不 close、不 done，`rb/stream-next!` 返回 nil 但不改状态
+  （与视图流的「暂时没有新条目」区分：视图流是常态，`:tool` 是**待外部动作**）。
+- **`drain` 遇到 `:tool`** → 报 60「流停在待外部动作」；**`round-finish` 预扫到 `:tool`**
+  → 清空本轮列表并按 REQ-18 报 60（本轮未完成）。
+- **接管方式**（明文，不隐含）：`invoke` 跑工具 → `append` 结果 → `resend` 复活这条流。
+- **验收**：`C:req-47-51-capabilities`。
+
+## D-47 `onfail Agent [quot] -- Agent` 失败回退；`->` 记来源边；`subscribe` 恢复广播（M6 / REQ-51）
+
+- **`onfail`**：把引号存进 agent 的 `:onfail`；默认 `@RoundDone` 钩子转换流时失败、
+  且该流没有被更新的流取代，就执行引号并把栈顶当作**替代回复**并入会话（本轮仍完成）。
+  引号在 `onfail` 里**先出栈**（书写 `onfail [ … ]`，agent 留在栈上）。
+- **`->`**：`且 a b` 记 `b.origin ⊇ a`（最左实参 = 第一个操作数，先出栈 = `from`），
+  返回后者；血缘只增不改（`origin` 词可读）。
+- **`subscribe`**：**推翻 D-44**。它和 `unsubscribe` 是**一对反义动词**
+  （注销出缺省广播域 / 恢复缺省广播域），不违反 REQ-09「一个名字一种词性」。
+- **验收**：`C:req-47-51-capabilities`。
+
+## D-48 能失败后重试，只能靠钩子 + `resend`（M6 / REQ-49）
+
+- **核心不内置重试策略**：`@on @Fail [ pop resend pop ]` 就是全部——`resend` 接受
+  **Agent 或 Stream**，所以在 `@Fail` 钩子里不需要解析标签。
+- **失败流不并入会话**：默认钩子转换失败时先看「是否已被更新的流取代」；被取代 → 丢弃，
+  所以重试成功后会话里只有成功那条 assistant 消息。
+- **没装钩子 = 不重试**（明确报错，不静默重试）。`@Fail` 载荷 = `Fail Stream`。
+- **收尾多趟**：一轮里钩子可能新建流（重试/回退），`round-finish` 用「版本号 `:round-rev`」
+  判断列表还在变就再跑一趟（上限 64 趟，超过报 60）；钩子关着（列表不再变）就结束。
+- **验收**：`C:req-47-51-capabilities`（`@on @Fail` 重试、`resend Stream`）。
+
+## D-49 上下文压缩策略在用户侧，核心只给零件（M6 / REQ-50）
+
+- **核心不内置任何压缩算法**：文档给出的标准写法是
+  `@on @RoundDone [ … take -4 session … saysys … agent … ]`——截取近几轮 + 用 system 消息
+  装摘要 + 新建 agent（新血缘，不动老会话）。
+- **为什么放钩子层**：压缩是**策略**（保留几轮、怎么总结），策略进核心会变成不可关闭的隐含规则
+  （违反「复杂度可见」）。
+- **验收**：`C:req-47-51-capabilities`（钩子里改出摘要会话 + 多一个 agent）。

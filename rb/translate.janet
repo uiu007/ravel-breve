@@ -107,6 +107,12 @@
     "unsubscribe" "rb/unsubscribe"
     # L9 前端订阅（M5）
     "watch" "rb/watch"
+    "subscribe" "rb/subscribe"
+    "->" "rb/->"
+    "onfail" "rb/onfail"
+    "deftool" "rb/deftool"
+    "invoke" "rb/invoke"
+    "saysys" "rb/saysys"
     # L8 钩子与流（M3）
     "@on" "rb/hook-on"
     "@off" "rb/hook-off"

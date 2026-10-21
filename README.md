@@ -3,7 +3,8 @@
 **波兰（前缀）式书写、类 Forth 栈机执行**的 **agent 会话编排方言**，宿主为 Janet 1.42.x（amalgamated，静态嵌入）。
 
 - 命令：`ravel`，脚本扩展名 `.breve`，提示符 `ravel> `
-- 规格（现行）：`ravel-breve-spec-v1.0c.md`；`ravel-breve-spec-v1.0b.md` 保留为历史（不删改）
+- 规格（现行）：`ravel-breve-spec-v1.0d.md`（agent 基本能力定稿，待 CHK-6 追认）；
+  `ravel-breve-spec-v1.0c.md` / `ravel-breve-spec-v1.0b.md` 保留为历史（不删改）
 - 规格反馈（缺陷/留白）：`docs/SPEC-FEEDBACK.md`
 - 开发计划与检查点：`PLAN.md`
 
@@ -16,12 +17,13 @@ make check-vendor    # 校验 vendor/janet 的 sha256
 bash tests/e2e/agent.sh  # 真 provider 验收（NVIDIA；无密钥则跳过）
 ```
 
-验收现状：**M5**（词表 L0–L9 + 持久化 + CLI / NDJSON 协议 v1）。
-`make test` → 258 单元/符合性 + 74 端到端 + core-only 全绿。
+验收现状：**M6**（词表 L0–L9 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
+工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边）。
+`make test` → 277 单元/符合性 + 80 端到端 + core-only 全绿；`make test-agent` → 真 NVIDIA 10/0。
 
 ```sh
 make clean && make
-./bin/ravel -v                         # ravel breve 1.0c · janet 1.42.1
+./bin/ravel -v                         # ravel breve 1.0d · janet 1.42.1
 ./bin/ravel --dump -e 'take 2 "abcde"' # (do (rb/push "abcde") (rb/push 2) (rb/take))
 ./bin/ravel -e 'take 2 "abcde"'        # "ab"
 ./bin/ravel -e 'map [ * 2 ] { 1 2 3 }' # (2 4 6)
@@ -147,6 +149,30 @@ x 21                           # → 84：字典与栈都回来了
 - **载入进来的词下一轮才解析得到**（转译先于执行，D-38）：`load` 之后的同一轮里调新词会报 20。
 - 核心不碰文件：`read` / `write` / `save` / `load` / `compact` 全部经 `:fs/*`、`:json/*`
   能力键；`--core-only` 时报 60。
+
+## agent 的基本能力（M6 / v1.0d）
+
+新能力**全部由「词 + 钩子 + 流 + 工作区的表」组合出来**，没有新语法、没有新类型：
+
+```
+# 工具调用（REQ-48）：注册 → 模型自己决定何时调 → 同一条流继续吐文本
+deftool "add2" "把 a 加 2" [ at "a"
++ 2 ]
+invoke "add2" H{ "a" 40 }          # 42（手动调用；自动执行由 @Toolcall 的默认钩子做）
+
+# 重试（REQ-49）：@Fail 载荷 = 失败流，resend 接受 Agent 或 Stream
+@on @Fail [ pop resend pop ]
+
+# 上下文压缩（REQ-50）：截近几轮 + system 摘要 + 新 agent（新血缘，不动老会话）
+@on @RoundDone [ pop take -4 session pop saysys pop dup agent "sum" { } pop ]
+```
+
+- 角色只是 `Utter` 的字段（REQ-47）：`saysys "你是助手"`、`Utter "tool" "42"`。
+- 模型发起工具调用 → 一条 `event` 消息（协议 3.4）→ 默认钩子跑工具 → 结果以 `role:"tool"`
+  追加 → **重发同一个流**。`@off @Toolcall` 后流停在 `:tool`（「待外部动作」），
+  前端可用 `invoke` + `append` + `resend` 接管（D-45 / D-46）。
+- 编排边（REQ-51）：`->`（血缘）、`onfail`（失败回退引号）、`subscribe`（恢复缺省广播域，
+  推翻 D-44）。`seq` / `par` 未冻结 → 不实现（SF-25）。
 
 ## 前后端分离与协议（M5）
 

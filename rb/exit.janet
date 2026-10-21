@@ -4,7 +4,8 @@
 #       40–49 IO / 50–59 内部 / 60–69 编排预留 / 70+
 #
 # 方言层错误一律以「字典」抛出：@{:rb-code <整数> :rb-msg <字符串>}
-# 宿主原生错误（未带 :rb-code）由 rb/error-code 归入运行时(30)。
+# 宿主原生错误（未带 :rb-code）由 rb/error-code 归入类型/取值错(31)：
+# REQ-41 把 30 保留给**栈下溢**，宿主抛出的错几乎都是对不上类型或越界（D-53）。
 
 (def rb/exit-table
   {:ok 0
@@ -44,9 +45,9 @@
   (and (dictionary? e) (not (nil? (get e :rb-code)))))
 
 (defn rb/error-code
-  "把任意错误值映射为退出码。宿主原生错误归入运行时(30)。"
+  "把任意错误值映射为退出码。宿主原生错误归入类型(31)——30 只留给栈下溢（D-53）。"
   [e]
-  (if (rb/rb-error? e) (get e :rb-code) 30))
+  (if (rb/rb-error? e) (get e :rb-code) (rb/exit-table :runtime-type)))
 
 (defn rb/error-msg
   [e]

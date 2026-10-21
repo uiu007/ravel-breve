@@ -1,0 +1,17 @@
+# 04 控制流：条件内联 / 条件在栈上 / 循环 / 错误
+if < 3 5 [ "yes" ] [ "no" ]
+show
+42
+< 60
+if [ "及格" ] [ "不及格" ]
+show
+loop 3 [ log "跑一次" ]
+1 2 3
+while [ < 1 depth ] [ + ]
+show
+try [ fail "boom" ] [ to-string ]
+show
+retry [ 42 ] 3
+show
+assert < 3 5 "3 必须小于 5"
+log "断言通过"

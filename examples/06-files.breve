@@ -1,0 +1,9 @@
+# 06 文件读写与工作区快照
+write "第一行\n第二行\n" "/tmp/ravel-demo.txt"
+lines read "/tmp/ravel-demo.txt"
+show
+len read "/tmp/ravel-demo.txt"
+show
+"/tmp/ravel-demo.rbx"
+save current
+log "快照已写"

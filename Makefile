@@ -13,7 +13,7 @@ BIN        := bin
 RB_MANIFEST := rb/MANIFEST
 RB_SRCS     := $(shell grep -v '^\s*#' $(RB_MANIFEST) | grep -v '^\s*$$')
 
-.PHONY: all test test-unit test-e2e test-agent test-core-only clean check-vendor bundle core-only
+.PHONY: all test test-unit test-e2e test-agent test-core-only test-examples clean check-vendor bundle core-only
 
 all: $(BIN)/ravel
 
@@ -37,7 +37,7 @@ core-only: | $(BUILD)/janet
 bundle: $(BUILD)/rb-bundle.janet
 	@echo "已生成 $<"
 
-test: all test-unit test-e2e test-core-only
+test: all test-unit test-e2e test-examples test-core-only
 
 # 测试一律走离线 provider（RB_LLM=mock），确定性、不联网（M3）
 test-unit: $(BUILD)/rb-bundle.janet
@@ -45,6 +45,10 @@ test-unit: $(BUILD)/rb-bundle.janet
 
 test-e2e: $(BIN)/ravel
 	RB_LLM=mock bash tests/e2e/cli.sh
+
+# 使用手册里的例程（mock，hermetic）：examples/run-all.sh
+test-examples: $(BIN)/ravel
+	RB_LLM=mock bash examples/run-all.sh
 
 # 真 provider（NVIDIA）：需要密钥；没有则脚本自行跳过（不进 make test）
 test-agent: $(BIN)/ravel

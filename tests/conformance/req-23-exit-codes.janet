@@ -26,9 +26,10 @@
     (each [k v] (pairs rb/exit-table)
       (is (number? v) (string "退出码表项非数字：" k)))))
 
-(deftest "REQ-23：宿主原生错误归入 30（len 3）"
+(deftest "REQ-23：宿主原生错误归入 31 类型（len 3）；30 只留给栈下溢（D-53）"
   (fn []
-    (is= 30 (eval-exit "len 3"))))
+    (is= 31 (eval-exit "len 3"))
+    (is= 30 (eval-exit "pop"))))
 
 (deftest "REQ-23：方言层错误携带 :rb-code 与 :rb-msg"
   (fn []

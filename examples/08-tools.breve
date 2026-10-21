@@ -1,0 +1,6 @@
+# 08 工具：定义 + 直接调用（不经模型）
+deftool "add2" "把参数 a 加 2" [ at "a"
+to-int
++ 2 ]
+invoke "add2" H{ "a" 40 }
+show

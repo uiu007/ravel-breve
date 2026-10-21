@@ -1,0 +1,9 @@
+# 07 一次对话（RB_LLM=mock 时是确定性的回声）
+agent "c" { }
+dup
+send say "你好"
+drain
+show
+session
+to-json
+show

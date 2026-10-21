@@ -1,0 +1,25 @@
+# 03 序列与文本
+map [ * 2 ] { 1 2 3 }
+show
+filter [ > 2 ] { 1 2 3 }
+show
+fold [ + ] 0 { 1 2 3 }
+show
+reverse "abc"
+show
+sort { 3 1 2 }
+show
+split "," "a,b,c"
+show
+lines "第一行\n第二行"
+show
+words "  a b   c "
+show
+trim "  hi  "
+show
+replace "a" "o" "banana"
+show
+,, { 1 } { 2 } { 3 }
+show
+zip { 1 2 } { "a" "b" }
+show

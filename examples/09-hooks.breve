@@ -1,0 +1,15 @@
+# 09 钩子：观察块到达；再演示「关掉默认收尾钩子 → 手动合并」
+@on @Chunk [ log
+pop ]
+agent "c" { }
+send say "hi"
+drain
+@off @RoundDone
+@off @Chunk
+agent "m" { }
+dup
+send say "hi"
+append utter
+session
+to-json
+show

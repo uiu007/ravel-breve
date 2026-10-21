@@ -1,0 +1,21 @@
+# 02 定义自己的词：常量、文档串、递归
+double : "翻倍" [ * 2 ]
+double 21
+show
+pi : [ 3.14159 ]
+* pi 2
+show
+doc "double"
+see "double"
+fact : "阶乘（递归）" [ dup
+  > 2
+  if [ pop
+  1 ] [ dup
+  -1
+  +
+  fact
+  * ] ]
+fact 5
+show
+fact 10
+show

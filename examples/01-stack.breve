@@ -1,0 +1,13 @@
+# 01 栈与镜像读法：一行一个语句，字面量填最左操作数
++ 1 2
+show
+- 10 4
+show
+take 2 "abcde"
+show
+{ 1 2 3 }
+len
+show
+H{ "name" "ravel" "kind" "dialect" }
+at "name"
+show

@@ -1,0 +1,9 @@
+# 05 JSON 往返
+to-json H{ "a" 1 "b" { 2 3 } }
+show
+from-json "{\"a\":[1,2,3]}"
+show
+at "a" from-json "{\"a\":[1,2,3]}"
+show
+len at "a" from-json "{\"a\":[1,2,3]}"
+show

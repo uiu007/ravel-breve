@@ -203,6 +203,7 @@ rb/               方言核心（随宿主静态嵌入；rb/MANIFEST 决定装�
 cap/              能力层（可整目录剔除；核心不静态依赖，REQ-37）
 tools/embed.janet 由 MANIFEST 生成 build/rb-bundle.janet 与 build/rb_bundle.c
 tests/            unit / conformance / e2e（+ 附录 D 的 core-only 验收）
+examples/         使用手册里的可跑例程（mock，hermetic；run-all.sh 一次跑完）
 docs/             符合性矩阵、决策记录、协议草案、规格反馈
 ```
 
@@ -210,6 +211,7 @@ docs/             符合性矩阵、决策记录、协议草案、规格反馈
 
 | 文件 | 内容 |
 |---|---|
+| `docs/GUIDE.md` | **使用手册（例程版）**：从栈读法到 agent / 钩子 / 工具 / 协议 |
 | `docs/CONFORMANCE.md` | REQ ↔ 测试矩阵（每条 REQ 的可执行验收） |
 | `docs/DECISIONS.md` | 规格未冻结处的实现决策（D-xx） |
 | `docs/PROTOCOL.md` | NDJSON over stdio 协议 v1（M5 冻结） |

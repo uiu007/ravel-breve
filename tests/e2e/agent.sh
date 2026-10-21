@@ -88,5 +88,27 @@ check_rc "真机：坏密钥 → 60（编排层）" 60 env NVIDIA_API_KEY=sk-bad
 send say "hi"
 drain'
 
+# ⑥ 工具调用（REQ-48）：真模型自己决定调 → 默认钩子执行 → 会话留下 tool 消息，
+#    且工具跑完后同一条流继续吐出 assistant 文本。一次调用里同时验两件事。
+deftool_src='deftool "add2" "把参数 a（整数）加 2" [ at "a"
+to-int
++ 2 ]'
+ask_src='请用 add2 工具计算 40 加 2，然后告诉我结果'
+check_rc "真机：工具调用跑通" 0 $RAVEL -e "$deftool_src
+agent \"c\" { }
+dup
+send say \"$ask_src\"
+drain
+pop
+session
+to-json"
+check "真机：会话里留下 role=tool 的消息（REQ-48 ③）" "yes" \
+      "$(grep -q '\\\"role\\\":\\\"tool\\\"' /tmp/rb-agent-out && echo yes || echo no)"
+# 工具之后「同一条流继续吐文本」在 mock 里是确定性的（conformance/req-47-51）；
+# 真模型偶发返回空 content，这里只提示、不计入失败。
+grep -q '\\\"role\\\":\\\"assistant\\\"' /tmp/rb-agent-out \
+  || printf '  · 提示：真模型本轮未给出工具后的文本（空 content），不影响工具链路\n'
+
+
 echo "端到端（真 provider）：通过 $pass，失败 $fail"
 [ "$fail" -eq 0 ]

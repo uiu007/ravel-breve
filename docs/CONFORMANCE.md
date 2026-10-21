@@ -188,12 +188,28 @@ pop          # 丢掉工作区句柄（load 的结果）
 x 21         # → 42（注意：载入进来的词要下一轮才解析得到，见 D-38）
 ```
 
-**持久化格式（D-33 冻结）**：`<path>` = 单文件 JSON 快照（`kind` / `version` / `dict` / `stack` / `agents`）；
-`<path>.log` = JSONL，每轮一行 `{"v","n","defs","stack"}`；末行为半截时**容忍并告警**（崩溃恢复）。
+**持久化格式（D-33 冻结；`llm` 段见 D-54）**：`<path>` = 单文件 JSON 快照
+（`kind` / `version` / `dict` / `stack` / `agents` / `llm`）；
+`<path>.log` = JSONL，每轮一行 `{"v","n","defs","stack"}`，仅当 provider 配置变化时多带 `"llm"`；
+末行为半截时**容忍并告警**（崩溃恢复）。
 字典只存 **ravel 源**（D-34），宿主序仅用于 `--dump` 对照。
 
 **compact**：① 日志 > 快照 0.5 倍；② 日志 > 1000 条；③ 显式 `compact`。
 触发后写新快照、清空日志、计数归零。
+
+### 规格之外新增的词（D-54 / D-55）
+
+| 词 | 栈效应 | 用例 |
+|---|---|---|
+| `llm` | `-- Table`（当前工作区的 provider 配置，活表） | U:config、e2e |
+| `llm-get` | `Key -- Value`（**生效值**：配置 > 环境变量 > 缺省） | U:config、e2e |
+| `llm-set` | `Value Key --`（`nil` = 删除；白名单外 31，`key` 60） | U:config、e2e |
+
+这三个词是 v1.0d 之后的**追加**（规格附录 A 尚无，见 SF-32）。
+
+**失败求值的栈语义（D-55）**：一次求值 = 一个事务；出错则栈回到求值前
+（副作用不回滚）。故 `+ 1` 在空栈上只报 30，不留半截操作数；
+REPL 与 `--serve` 报错后可继续（U:config、e2e:cli）。
 
 ## M5 词表覆盖（前端订阅，L9）与 CLI
 

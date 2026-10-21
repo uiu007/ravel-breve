@@ -229,5 +229,32 @@ check_rc "编排级：无能力层时 send → 60" 60 \
                       (os/exit (if (r :ok) 0 (rb/error-code (r :error))))'
 check_rc "工作区：save 非工作区 → 31" 31 $RAVEL -e "save H{ } \"/tmp/rb-e2e-x.json\""
 
+# D-55：失败的一轮没有栈效果——报错后能继续，且栈上没有半截操作数
+check_rc "REPL：栈下溢后仍能继续（D-55）" 0 bash -c "printf '+ 1\ndepth\nquit\n' | $RAVEL"
+check "REPL：报错不退出、后续语句照跑" "yes" \
+      "$(grep -q '栈下溢' /tmp/rb-e2e-err && echo yes || echo no)"
+check "REPL：下溢没留下半截操作数（深度回到 0）" "0" \
+      "$(tr -d 'ravel> \n' < /tmp/rb-e2e-out)"
+# --serve 里同样：报错请求不影响下一个请求的栈
+check_rc "--serve：坏请求后继续（D-55）" 0 bash -c "printf '+ 1\ndepth\n' | $RAVEL --serve"
+check "--serve：下一个请求看到干净栈" "yes" \
+      "$(tail -1 /tmp/rb-e2e-out | grep -q '\"stack\":\[\"0\"\]' && echo yes || echo no)"
+
+# D-54：provider 配置在方言里可读可写，运行中可切换
+check_rc "配置：llm-get 生效值" 0 $RAVEL -e 'llm-get "provider"'
+check "配置：缺省 provider（RB_LLM=mock）" '"mock"' "$(cat /tmp/rb-e2e-out)"
+check_rc "配置：llm-set 后立即生效" 0 $RAVEL -e 'llm-set "nvidia" "provider"
+llm-get "provider"'
+check "配置：工作区覆盖环境变量" '"nvidia"' "$(cat /tmp/rb-e2e-out)"
+check_rc "配置：拼错配置项 → 31" 31 $RAVEL -e 'llm-set "x" "provier"'
+check_rc "配置：密钥不是配置项 → 60" 60 $RAVEL -e 'llm-set "sk-x" "key"'
+# 配置随快照走：同一份 .rbx 换进程仍然有效
+CFGW=/tmp/rb-e2e-cfg.json
+check_rc "配置：随快照保存" 0 $RAVEL -e "llm-set \"nvidia\" \"provider\"
+save current \"$CFGW\""
+check_rc "配置：换进程载入仍生效" 0 $RAVEL -e "load \"$CFGW\"
+llm-get \"provider\""
+check "配置：载入后 provider 仍是 nvidia" '"nvidia"' "$(tail -1 /tmp/rb-e2e-out)"
+
 echo "端到端：通过 $pass，失败 $fail"
 [ "$fail" -eq 0 ]

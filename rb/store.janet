@@ -159,6 +159,22 @@
   [stack]
   (map rb/store-enc (filter (fn [v] (not (rb/stream? v))) stack)))
 
+(defn rb/store-config-json
+  "工作区 provider 配置 → 纯 JSON 对象（键都是字符串，值是标量；D-54）。"
+  [ws]
+  (def o @{})
+  (eachp [k v] (or (ws :config) @{})
+    (when (not (nil? v)) (put o (string k) v)))
+  o)
+
+(defn rb/store-config-apply!
+  "载入快照里的 `llm` 段；缺省 = 清空（回落到环境变量/内置缺省）。"
+  [ws cfg]
+  (def c @{})
+  (when (dictionary? cfg)
+    (eachp [k v] cfg (put c (string k) v)))
+  (put ws :config c))
+
 (defn rb/store-snapshot
   "工作区 + 栈 → 快照 JSON 文本（REQ-20 的「单文件」）。"
   [ws stack]
@@ -166,15 +182,22 @@
                      "version" rb/store-version
                      "dict" (rb/store-dict-json (ws :dict))
                      "stack" (rb/store-enc-stack stack)
-                     "agents" (rb/store-agents-json ws)}))
+                     "agents" (rb/store-agents-json ws)
+                     # D-54：provider 配置随工作区走（明文 JSON 对象；密钥不在其中）
+                     "llm" (rb/store-config-json ws)}))
 
 (defn rb/store-log-line
-  "一轮 → 一行 JSONL 文本（不含换行）。"
+  "一轮 → 一行 JSONL 文本（不含换行）。`llm` 段只在配置与本轮日志基线不同时出现（D-54）。"
   [ws seq defs stack]
-  (rb/store-encode @{"v" rb/store-version
-                     "n" seq
-                     "defs" defs
-                     "stack" (rb/store-enc-stack stack)}))
+  (def cfg (rb/store-config-json ws))
+  (def rec @{"v" rb/store-version
+             "n" seq
+             "defs" defs
+             "stack" (rb/store-enc-stack stack)})
+  (when (not= (rb/store-encode cfg) (or (ws :logged-config) "{}"))
+    (put rec "llm" cfg))
+  rec
+  (rb/store-encode rec))
 
 (defn rb/store-log-path
   [path]
@@ -232,6 +255,7 @@
   (put ws :seq 0)
   (put ws :snap-size (length text))
   (put ws :logged (rb/store-dict-json (ws :dict)))
+  (put ws :logged-config (rb/store-encode (rb/store-config-json ws)))
   (put ws :logged-stack (rb/store-encode (rb/store-enc-stack stack)))
   ws)
 
@@ -272,7 +296,8 @@
                   "src" (or (get e "src") "")
                   "doc" (or (get e "doc") "")}))
   (rb/store-apply-defs! ws defs path)
-  # 3) 快照里的栈与 agent
+  # 3) 快照里的栈、agent 与 provider 配置（D-54）
+  (rb/store-config-apply! ws (get snap "llm"))
   (rb/store-apply-stack! ws (or (get snap "stack") @[]))
   # 4) 日志重放：坏行 / 末尾半行容忍（崩溃恢复）
   (def logp (rb/store-log-path path))
@@ -288,6 +313,8 @@
         (def p (protect (rb/store-decode line)))
         (if (get p 0)
           (let [rec (get p 1)]
+            (when (dictionary? (get rec "llm"))
+              (rb/store-config-apply! ws (get rec "llm")))
             (rb/store-apply-defs! ws (or (get rec "defs") @[]) path)
             (rb/store-apply-stack! ws (or (get rec "stack") @[]))
             (set n (+ n 1)))
@@ -300,6 +327,7 @@
   (put ws :seq n)
   (put ws :snap-size (length text))
   (put ws :logged (rb/store-dict-json (ws :dict)))
+  (put ws :logged-config (rb/store-encode (rb/store-config-json ws)))
   (put ws :logged-stack (rb/store-encode (rb/store-enc-stack (if (ws :env) ((ws :env) :rb-stack) @[]))))
   ws)
 
@@ -337,6 +365,7 @@
   (put ws :seq 0)
   (put ws :snap-size (length text))
   (put ws :logged (rb/store-dict-json (ws :dict)))
+  (put ws :logged-config (rb/store-encode (rb/store-config-json ws)))
   (put ws :logged-stack (rb/store-encode (rb/store-enc-stack stack)))
   ws)
 

@@ -82,7 +82,7 @@
     (is= "opaque" (e "$"))
     (is (< n 20) "确实在某个深度截断了")))
 
-(deftest "REQ-20：快照含 kind / version / dict / stack / agents 五段"
+(deftest "REQ-20：快照含 kind / version / dict / stack / agents / llm 六段"
   (fn []
     (def env (new-ws))
     (def ws (env :rb-ws))
@@ -94,7 +94,8 @@
     (is (not (string/find "rb/push" (rb/store-encode (snap "dict"))))
         "快照里不该出现宿主序")
     (is= 2 (length (snap "stack")))
-    (is (array? (snap "agents")))))
+    (is (array? (snap "agents")))
+    (is (dictionary? (snap "llm")) "D-54：provider 配置随快照走")))
 
 (deftest "REQ-21：比例判据在 0.5 倍边界（> 0.5 才触发）"
   (fn []

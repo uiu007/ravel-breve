@@ -15,6 +15,7 @@ $ ./examples/run-all.sh
   ✓ examples/08-tools.breve
   ✓ examples/09-hooks.breve
   ✓ examples/10-serve.sh
+  ✓ examples/11-llm-config.breve
 例程：失败 0 个
 ```
 
@@ -118,18 +119,21 @@ $ RB_LLM=mock ./bin/ravel examples/01-stack.breve
 "ravel"
 ```
 
-### 1.2 provider 开关（只有它影响「谁来回话」）
+### 1.2 provider：谁来回答（环境变量 + 语言内配置）
 
-| 环境变量 | 取值 | 说明 |
-|---|---|---|
-| `RB_LLM` | `mock` / `nvidia` / `auto`（缺省） | 换 provider 不用改一行方言代码 |
-| `RB_MOCK_REPLY` | 任意字符串 | mock 的固定回复；缺省是「回声：<最后一条消息>」 |
-| `RB_MOCK_TOOL` | `工具名` 或 `工具名:{json}` | 让 mock「模型」发起一次工具调用 |
-| `RB_MODEL` | 模型名 | 真 provider 的模型 |
-| `NVIDIA_API_KEY` | 密钥 | 也可放 `secrets/nvidia.key`（600 权限，不入库） |
-| `RB_MAX_TOKENS` | 整数 | 真 provider 的 max_tokens |
-| `RB_ENDPOINT` | URL | 换端点（兼容 OpenAI 形状的服务） |
-| `RB_DEBUG_SSE` | 非空 | 把 SSE 原始行打到 stderr |
+**「provider」= 谁来回话**：真模型（`nvidia`）、还是离线假模型（`mock`）。
+
+#### 1.2.1 `RB_LLM=mock` 是什么意思
+
+`mock` 是**离线假 provider**：不联网、不花钱、回复是确定的。
+
+- 缺省回复：`"回声：<最后一条消息内容>"`；用 `RB_MOCK_REPLY` 换成固定串；
+  用 `RB_MOCK_TOOL` 让它装模作样发起一次工具调用（测工具循环用）。
+- 流式仍然是流式：长回复按 UTF-8 边界切成几块（`@Chunk` 钩子照常触发），
+  所以「钩子 / 合并 / 压缩 / 重试」全都能在 mock 上测。
+- **为什么例程都用它**：文档和测试要**可照抄的输出**。真模型每次措辞都不同，
+  写进手册就是假输出。所以 `examples/*` 与 `make test` 一律 `RB_LLM=mock`，
+  真 provider 的测试另有入口（`make test-agent`，不进 `make test`）。
 
 ```
 $ RB_MOCK_REPLY='固定回复' RB_LLM=mock ./bin/ravel -e 'agent "c" { }
@@ -138,6 +142,82 @@ send say "hi"
 drain'
 "固定回复"
 ```
+
+#### 1.2.2 换成真 provider（NVIDIA）
+
+密钥**只**从这两处来，不进工作区、不进快照、不入库：
+`NVIDIA_API_KEY` 环境变量，或 `secrets/nvidia.key`（`chmod 600`，已在 `.gitignore`）。
+
+```
+$ RB_LLM=nvidia ./bin/ravel -e 'agent "c" { }
+send say "只说两个字：好的"
+drain
+show'
+"好的"
+```
+
+#### 1.2.3 运行中换配置：`llm` / `llm-get` / `llm-set`
+
+环境变量只能在**启动前**定死。要在一局里换 provider、换模型、改上限，
+把配置写进**工作区**（D-54）：
+
+| 配置项 | 环境变量（次优先） | 内置缺省 | 说明 |
+|---|---|---|---|
+| `provider` | `RB_LLM` | `auto` | `nvidia` / `mock` / `auto`（`auto` = 有密钥就真、否则 mock） |
+| `model` | `RB_MODEL` | `meta/llama-3.2-11b-vision-instruct` | 真 provider 的模型名 |
+| `endpoint` | `RB_ENDPOINT` | NVIDIA 官方端点 | 兼容 OpenAI 形状的服务也能接 |
+| `max-tokens` | `RB_MAX_TOKENS` | `512` | 本轮回复上限 |
+| `temperature` | `RB_TEMPERATURE` | `0.2` | 采样温度 |
+
+**优先级：工作区配置 > 环境变量 > 内置缺省**（`llm-get` 显示的就是生效值）。
+
+三个词（书写序照旧：最左 = 第一个操作数 = 栈顶）：
+
+| 词 | 栈效应 | 作用 |
+|---|---|---|
+| `llm` | `-- Table` | 整张配置表（**活表**：`at` 读，`llm-set` 写） |
+| `llm-get` | `Key -- Value` | 取**生效值**（含环境变量与缺省） |
+| `llm-set` | `Value Key --` | 写一项；`Value` 为 `nil` = 删除（回落到环境变量/缺省） |
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'llm-get "provider"
+show
+llm-get "model"
+show
+llm-set "nvidia" "provider"       # 从这一句之后的 send 就走真 provider
+llm-set "demo-model" "model"
+llm
+show'
+"mock"
+"meta/llama-3.2-11b-vision-instruct"
+@{"model" "demo-model" "provider" "nvidia"}
+```
+
+一局里换 provider，**不必重启**（下面这次是真调用，最后一轮走 NVIDIA）：
+
+```breve
+llm-set "mock" "provider"          # 先离线跑一轮
+agent "c" { }
+send say "只回答两个字：好的"
+drain
+show                                # → "回声：只回答两个字：好的"
+
+llm-set "nvidia" "provider"         # 换真 provider
+llm-set "meta/llama-3.2-11b-vision-instruct" "model"
+llm-set 128 "max-tokens"
+llm-get "provider"
+show                                # → "nvidia"
+
+agent "c" { }
+send say "只回答两个字：收到"
+drain
+show                                # → "好的"（真模型说的）
+```
+
+- 白名单：写错配置项名 → 31（`未知的 LLM 配置项：provier`），不静默无效。
+- `key` **不是**配置项：`llm-set "sk-..." "key"` → 60，提示改用环境变量/密钥文件。
+- 保存工作区（`save`）会把配置一起写进快照；`load` 之后仍然生效——
+  于是同一份 `.rbx` 在别的机器上也是「同一个 provider 配置」。
 
 ---
 
@@ -627,6 +707,9 @@ ravel: boom            # 每次都失败，重试 2 次后仍失败 → 33
 - `recover [ 体 ] [ 处理 ]`：先记下体入口处的栈深度，出错时把栈**截回**该深度，
   再把错误交给处理引号。**只截不补**——体已经弹掉的值回不来。
 - `retry [ 体 ] n`：体失败就重试，至多 n 次。
+- **失败的一轮没有栈效果**（D-55）：一次求值里任何一步出错，栈回到求值前的样子。
+  所以 `+ 1` 在空栈上只报 30，不会留下半截操作数；REPL 与 `--serve` 报错后
+  可以从干净状态继续，不必重启。
 
 ### 8.4 完整例程
 
@@ -1065,7 +1148,7 @@ $ ./examples/10-serve.sh
 | 41 | 写失败 | `write "x" "/nope/x"` |
 | 50 | 内部错误 | — |
 | 51 | 宿主内部 | — |
-| 60 | 编排 / 能力缺失 | 未注册的工具、`--core-only` 里的 JSON 词 |
+| 60 | 编排 / 能力缺失 | 未注册的工具、真 provider 报错（坏模型名、404 错误页）、`--core-only` 里的 JSON 词 |
 
 ```
 $ ./bin/ravel -e 'pop'; echo $?
@@ -1083,7 +1166,7 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 
 ---
 
-## 17. 常见坑（十条）
+## 17. 常见坑（十二条）
 
 1. **一行 = 一个语句**。`1 2 +` 不是「压 1、压 2、加」，是镜像后的 `+ 2 1` → 30。
    要分步就换行。
@@ -1098,6 +1181,10 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 8. **`load` 载入的词下一轮才可见**：同一个 `-e` 里立刻用会报 20。
 9. **未冻结的词**（`seq` `par` `Json` `push`）仍然是 20；别指望它们。
 10. **诊断只走 stderr**：`show`/`print`/`log`/`dump` 不进 stdout，stdout 只有协议。
+11. **报错不脏栈**：失败的那次求值整体回滚（D-55），栈上看不到半截操作数；
+    想查现场就先用 `dump`，或者在出错**前**把值留好。
+12. **配置在启动后也能改**：`RB_LLM` 等环境变量只是缺省；`llm-set "mock" "provider"`
+    当场生效（优先级：工作区配置 > 环境变量 > 缺省，D-54）。
 
 ---
 
@@ -1119,6 +1206,7 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 | L7 持久化 | `read` `write` `current` `save` `load` `compact` |
 | L8 钩子 / 工具 | `@on` `@off` `deftool` `invoke` `resend` `stop` `drain` `next` |
 | L9 前端 | `watch` `subscribe` `unsubscribe` |
+| provider 配置 | `llm` `llm-get` `llm-set` |
 
 完整栈效应见 `ravel-breve-spec-v1.0d.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`。
 
@@ -1138,6 +1226,7 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 | `examples/08-tools.breve` | 工具定义与 `invoke` |
 | `examples/09-hooks.breve` | `@Chunk` 钩子、手动合并路径 |
 | `examples/10-serve.sh` | 前端协议：`chunk`/`close`/跨请求状态/`reset` |
+| `examples/11-llm-config.breve` | provider 配置：`llm-get` 生效值、`llm-set` 预置 |
 | `examples/run-all.sh` | 一次跑完上面全部 |
 
 ```

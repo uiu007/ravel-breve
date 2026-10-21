@@ -43,6 +43,7 @@
              "@Toolcall" @[(fn [] (when rb/default-toolcall (rb/default-toolcall)))]}
     :agents @[]
     :tools @{}     # REQ-48：工具表（名字 → 描述 + 引号）
+    :config @{}    # D-54：provider 配置（llm / llm-set / llm-get）
     :round @[]
     :round-rev 0   # 本轮列表的版本号（新建流 +1；收尾据此判断「还在变」）
     :watch @[]     # L9 被 watch 的视图流（REQ-28）

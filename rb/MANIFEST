@@ -6,6 +6,7 @@ rb/runtime.janet
 rb/cap.janet
 rb/lexer.janet
 rb/events.janet
+rb/config.janet
 rb/dict.janet
 rb/stream.janet
 rb/agent.janet
@@ -21,6 +22,7 @@ rb/words/l5.janet
 rb/words/l5b.janet
 rb/words/l3.janet
 rb/words/l4.janet
+rb/words/llm.janet
 rb/words/l8.janet
 rb/round.janet
 rb/eval.janet

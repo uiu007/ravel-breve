@@ -113,6 +113,10 @@
     "deftool" "rb/deftool"
     "invoke" "rb/invoke"
     "saysys" "rb/saysys"
+    # provider 配置（D-54）
+    "llm" "rb/llm"
+    "llm-set" "rb/llm-set"
+    "llm-get" "rb/llm-get"
     # L8 钩子与流（M3）
     "@on" "rb/hook-on"
     "@off" "rb/hook-off"

@@ -1,0 +1,14 @@
+# 11 provider 配置就在工作区里：读生效值 → 预置 → 改 → 看整张表
+llm-get "provider"
+show
+llm-get "model"
+show
+llm-get "max-tokens"
+show
+llm-set "mock" "provider"
+llm-set "demo-model" "model"
+llm-set 64 "max-tokens"
+llm
+show
+llm-get "provider"
+show

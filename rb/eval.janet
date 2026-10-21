@@ -45,9 +45,16 @@
     (rb/raise (rb/exit-table :syntax-compile)
               (string "宿主编译失败：" (get thunk :error))))
   (def e (or env (rb/new-env)))
+  (def stack (e :rb-stack))
+  (def snap (array/slice stack))   # 失败则回滚到求值前（D-55）
   (def fb (fiber/new thunk :e e))
   (def res (resume fb))
   (def err? (= (fiber/status fb) :error))
+  # D-55：一次求值失败 → **没有栈效果**。栈回到求值前的样子，
+  # 于是 REPL / --serve 报错之后可以从干净状态继续（不必重启、不留半截操作数）。
+  (when err?
+    (array/clear stack)
+    (each v snap (array/push stack v)))
   # REQ-18：一轮正常结束 → 触发 @RoundDone（失败/中断不算「完成」）
   (if err? (rb/round-abort e) (rb/round-finish e))
   # REQ-20/21：绑定了路径的工作区，正常一轮后追加日志并按需 compact。

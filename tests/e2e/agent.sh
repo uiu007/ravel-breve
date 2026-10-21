@@ -88,6 +88,14 @@ check_rc "真机：坏密钥 → 60（编排层）" 60 env NVIDIA_API_KEY=sk-bad
 send say "hi"
 drain'
 
+# ⑤b 坏模型名：上游返回纯文本错误页，必须报 60 而不是「空回复 + 0」（D-56）
+check_rc "真机：坏模型名 → 60（非 SSE 错误体）" 60 env RB_MODEL=不存在的模型 RB_LLM=nvidia \
+        $RAVEL -e 'agent "c" { }
+send say "hi"
+drain'
+check "真机：错误消息保留上游原文" "yes" \
+      "$(grep -q '非 SSE 内容' /tmp/rb-agent-err && echo yes || echo no)"
+
 # ⑥ 工具调用（REQ-48）：真模型自己决定调 → 默认钩子执行 → 会话留下 tool 消息，
 #    且工具跑完后同一条流继续吐出 assistant 文本。一次调用里同时验两件事。
 deftool_src='deftool "add2" "把参数 a（整数）加 2" [ at "a"

@@ -154,9 +154,13 @@
                   (def r (try
                            (rb/run-source buf "repl" env)
                            ([e] {:ok false :error e :stack @[]})))
-                  # REPL 也报告栈（同 -e），错误走 stderr 且不退出
+                  # REPL 也报告栈（同 -e），错误走 stderr 且不退出（REQ-22）
                   (when json? (rb/cli-out-flush!))
+                  # 先冲 stdout：管道/重定向时它是块缓冲，不冲会让提示符
+                  # 出现在错误消息之后，看着像「REPL 重开了」（D-55）
+                  (flush)
                   (rb/cli-report r dump? json?)
+                  (flush)
                   (when (not (r :ok)) (set exit 0)))
                 (set buf ""))))))))
   exit)

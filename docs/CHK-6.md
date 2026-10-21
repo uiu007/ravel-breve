@@ -18,8 +18,8 @@
 ## 2. 验收
 
 ```
-make test        → 292 单元/符合性 + 80 端到端 + core-only 全绿
-make test-agent  → 真 NVIDIA 10 / 0
+make test        → 304 单元/符合性 + 94 端到端 + 11 例程 + core-only 全绿
+make test-agent  → 真 NVIDIA 14 / 0
 ```
 
 - 符合性：`tests/conformance/req-47-51-capabilities.janet`（五条 REQ 逐条）

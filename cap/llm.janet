@@ -12,8 +12,14 @@
   (when (nil? f)
     (rb/raise (rb/exit-table :orchestration-base)
               (string "provider 未装载：" provider "（" key "）")))
-  (def opts2 (merge @{:provider provider :model (cap/llm-model)} (or opts @{})))
-  (put opts2 :model (or (opts2 :model) (cap/llm-model)))
+  # D-54：模型 / 端点 / 上限 / 温度都由 cap/config 按优先级解析；
+  # 显式 opts（能力层内部调用）优先，其次工作区配置、环境变量、缺省。
+  (def opts2 (merge @{:provider provider
+                      :model (cap/llm-model)
+                      :endpoint (cap/llm-endpoint)
+                      :max-tokens (cap/llm-max-tokens)
+                      :temperature (cap/llm-temperature)}
+                    (or opts @{})))
   (f messages opts2))
 
 (rb/cap-put :llm/chat cap/llm-chat)

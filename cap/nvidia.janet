@@ -13,11 +13,9 @@
   (enc @{:model (opts :model)
          :messages messages
          :stream true
-         :temperature (or (opts :temperature) 0.2)
-         :max_tokens (or (opts :max-tokens)
-                         (do
-                           (def env (os/getenv "RB_MAX_TOKENS"))
-                           (if env (scan-number env) 512)))
+         # D-54：温度与上限也走「工作区配置 > 环境变量 > 缺省」
+         :temperature (or (opts :temperature) (cap/llm-temperature))
+         :max_tokens (or (opts :max-tokens) (cap/llm-max-tokens))
          :top_p 1
          # REQ-48：工具表非空才带 `tools`（空表 = 纯文本对话）
          :tools (when (and (opts :tools) (> (length (opts :tools)) 0)) (opts :tools))}))
@@ -74,7 +72,7 @@
   (when (nil? post)
     (rb/raise (rb/exit-table :orchestration-base) "能力层未提供 :http/post-lines（cap/http）"))
   (when (os/getenv "RB_DEBUG_BODY") (eprintf "BODY| %s" (cap/nv-body messages opts)))
-  (def lines (post (or (os/getenv "RB_ENDPOINT") cap/nv-endpoint)
+  (def lines (post (or (opts :endpoint) (cap/llm-endpoint))
                    @{"Authorization" (string "Bearer " key)
                      "Content-Type" "application/json"
                      "Accept" "text/event-stream"}
@@ -111,15 +109,28 @@
               (when c (set out c) (set go false)))))
         (string/has-prefix? ":" line) nil                # SSE 注释/心跳
         (or (string/has-prefix? "event:" line) (string/has-prefix? "id:" line)) nil
-        # 非 SSE 的错误体（整段 JSON）
+        # 非 SSE 的行：要么是错误体（整段 JSON），要么是无 JSON 的纯文本错误页
+        # （例如 404 的 `404 page not found`）。两种都报 60，不许静默返回空回复（D-56）。
         (do
           (def j (protect (dec line)))
-          (when (and (get j 0) (dictionary? (get j 1)))
-            (def obj (get j 1))
+          (def obj (when (get j 0) (get j 1)))
+          (when (dictionary? obj)
             (def detail (or (get obj "detail") (get obj "error") (get obj "message")))
             (when detail
               (rb/raise (rb/exit-table :orchestration-base)
-                        (string "NVIDIA 接口报错：" (string (if (dictionary? detail) (or (get detail "message") detail) detail)))))))))
+                        (string "NVIDIA 接口报错："
+                                (string (if (dictionary? detail)
+                                          (or (get detail "message") detail)
+                                          detail)))))
+            (def status (get obj "status"))
+            (when status
+              (rb/raise (rb/exit-table :orchestration-base)
+                        (string "NVIDIA 接口报错：HTTP " status
+                                (if (get obj "title") (string " " (get obj "title")) "")))))
+          (when (not (dictionary? obj))
+            (rb/raise (rb/exit-table :orchestration-base)
+                      (string "NVIDIA 接口返回非 SSE 内容："
+                              (string/slice line 0 (min 200 (length line)))))))))
     (if (and (nil? out) (not (empty? acc)))
       (do
         (def calls @[])

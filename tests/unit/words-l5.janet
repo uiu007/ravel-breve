@@ -55,3 +55,45 @@
     (is= [1] (eval-stack "retry [ 1 ] 2"))
     (is (not (eval-ok? "retry [ fail \"x\" ] 2")))
     (is= 31 (eval-exit "retry 5 2"))))
+
+(deftest "L5：栈上条件的形式（D-51）——语句里只有词 + 引号"
+  (fn []
+    # 条件已是栈上的值 → 语句 `if [ 真 ] [ 假 ]`
+    (is= [5 1] (eval-stack "5\ntrue\nif [ 1 ] [ 2 ]"))
+    (is= [5 2] (eval-stack "5\nfalse\nif [ 1 ] [ 2 ]"))
+    # 条件先算成值：字面量填**最左**操作数，故 `< 2` 读作「2 < 栈顶」
+    (is= ["big"] (eval-stack "5\n< 2\nif [ \"big\" ] [ \"small\" ]"))
+    (is= ["small"] (eval-stack "1\n< 2\nif [ \"big\" ] [ \"small\" ]"))
+    # 条件内联（有额外的条件 token）仍是原形
+    (is= [1] (eval-stack "if true [ 1 ] [ 2 ]"))))
+
+(deftest "L5：when / unless / loop 的栈上形式"
+  (fn []
+    (is= [7] (eval-stack "true\nwhen [ 7 ]"))
+    (is= [] (eval-stack "false\nwhen [ 7 ]"))
+    (is= [7] (eval-stack "false\nunless [ 7 ]"))
+    (is= [1 1 1] (eval-stack "3\nloop [ 1 ]"))
+    (is= [] (eval-stack "0\nloop [ 1 ]"))))
+
+(deftest "L5：递归（词体内自引用，D-51）"
+  (fn []
+    (is= [120] (eval-stack
+                 (string "fact5 : [ dup\n"
+                         "  > 2\n"
+                         "  if [ pop\n"
+                         "  1 ] [ dup\n"
+                         "  -1\n"
+                         "  +\n"
+                         "  fact5\n"
+                         "  * ] ]\n"
+                         "fact5 5")))
+    (is= [1] (eval-stack
+               (string "fact6 : [ dup\n"
+                       "  > 2\n"
+                       "  if [ pop\n"
+                       "  1 ] [ dup\n"
+                       "  -1\n"
+                       "  +\n"
+                       "  fact6\n"
+                       "  * ] ]\n"
+                       "fact6 0")))))

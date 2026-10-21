@@ -10,7 +10,7 @@
 #   recover —— 失败时先把栈**回滚**到 try 之前的深度，再压错误值跑处理引号。
 
 (defn rb/if
-  "cond [then] [else] -- ..."
+  "cond [then] [else] -- ...（条件内联：if < 2 [t] [e]）"
   []
   (def c (rb/pop))
   (def then-q (rb/pop))
@@ -30,6 +30,40 @@
   (def c (rb/pop))
   (def q (rb/pop))
   (unless c (q)))
+
+# ---- 栈上条件的形式（D-51）------------------------------------------------
+#
+# 条件**先算成值**时，写 `if [ 真 ] [ 假 ]`（语句里只有词 + 引号）：
+# 编译期据此选 stack 变体，因此两种写法在**转译期**就分开了，运行期无歧义。
+
+(defn rb/if-stack
+  "cond 已在栈上：[then] [else] -- ...；= `if` 的另一形（D-51）。"
+  []
+  (def then-q (rb/pop))
+  (def else-q (rb/pop))
+  (def c (rb/pop))
+  (if c (then-q) (else-q)))
+
+(defn rb/when-stack
+  "cond 已在栈上：[q] -- ..."
+  []
+  (def q (rb/pop))
+  (def c (rb/pop))
+  (when c (q)))
+
+(defn rb/unless-stack
+  "cond 已在栈上：[q] -- ..."
+  []
+  (def q (rb/pop))
+  (def c (rb/pop))
+  (unless c (q)))
+
+(defn rb/loop-stack
+  "n 已在栈上：[q] -- ...；执行 n 次"
+  []
+  (def q (rb/pop))
+  (def n (rb/pop))
+  (for _ 0 n (q)))
 
 (defn rb/loop
   "n [q] -- ...；执行 n 次"

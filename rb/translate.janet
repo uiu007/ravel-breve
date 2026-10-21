@@ -229,16 +229,40 @@
   (def name ((toks 0) :value))
   (def body ((toks 2) :tokens))
   (def body-src (rb/tokens->src body))
-  (def body-code (string "(fn [] " (rb/translate-stmts body dict) ")"))
+  # 先占位再转译体：体内的**自引用**（递归）在转译期就能解析到（D-51）
   (rb/dict-declare name body-src dict)
+  (def body-code (string "(fn [] " (rb/translate-stmts body dict) ")"))
   (string "(rb/define-word " (rb/render name) " " body-code " nil "
           (rb/render body-src) " " (rb/render body-code) ")"))
+
+(def rb/stack-variants
+  "语句只由「词 + 若干引号」组成时，条件/次数**已在栈上**（D-51）：
+   词 → [宿主变体, 需要的引号数]"
+  @{"if" @["rb/if-stack" 2]
+    "when" @["rb/when-stack" 1]
+    "unless" @["rb/unless-stack" 1]
+    "loop" @["rb/loop-stack" 1]})
+
+(defn rb/stack-form?
+  "该语句是不是「词 + 恰好 n 个引号」的栈上形式？"
+  [toks v]
+  (and (= (length toks) (inc (v 1)))
+       (all (fn [t] (= (t :kind) :block)) (slice toks 1))))
 
 (defn rb/stmt-forms
   "一条语句 → 形式文本数组（定义行是元层，不参与镜像）。"
   [toks &opt dict]
-  (if (rb/definition? toks)
-    @[(rb/translate-def toks dict)]
+  (cond
+    (rb/definition? toks) @[(rb/translate-def toks dict)]
+    (let [v (get rb/stack-variants ((toks 0) :value))]
+      (and v (rb/stack-form? toks v)))
+    (do
+      (def host ((get rb/stack-variants ((toks 0) :value)) 0))
+      (def out @[])
+      (each t (reverse (slice toks 1))
+        (array/push out (rb/translate-token t dict)))
+      (array/push out (string "(" host ")"))
+      out)
     (rb/translate-forms toks dict)))
 
 (set rb/translate-stmts

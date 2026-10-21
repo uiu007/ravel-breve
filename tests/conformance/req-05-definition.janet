@@ -47,3 +47,16 @@
   (fn []
     (is= [true] (eval-stack "= 3 3"))
     (is= [false] (eval-stack "= 3 4"))))
+
+(deftest "REQ-33：定义行支持自引用（递归）——占位先于体转译（D-51）"
+  (fn []
+    # 转译期先 rb/dict-declare 占位，体内才能解析到自己的名字
+    (is= [120] (eval-stack (string "c5f : [ dup\n"
+                                   "  > 2\n"
+                                   "  if [ pop\n"
+                                   "  1 ] [ dup\n"
+                                   "  -1\n"
+                                   "  +\n"
+                                   "  c5f\n"
+                                   "  * ] ]\n"
+                                   "c5f 5")))))

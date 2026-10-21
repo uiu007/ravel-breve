@@ -18,7 +18,7 @@
 ## 2. 验收
 
 ```
-make test        → 286 单元/符合性 + 80 端到端 + core-only 全绿
+make test        → 292 单元/符合性 + 80 端到端 + core-only 全绿
 make test-agent  → 真 NVIDIA 10 / 0
 ```
 
@@ -45,4 +45,5 @@ make test-agent  → 真 NVIDIA 10 / 0
 | `seq` / `par` 的栈效应、结果、`par` 的并发语义 | SF-25（当前报 20「未知的词」） |
 | `agent` 的第三个引号 `behavior` 仍无定义 | SF-26（接受并存储，但不执行） |
 | `session` 的实参：spec 写 `Workspace -- Session`，实现为 `Agent -- Session` | SF-27（建议改 spec） |
+| `Json` 只有类型名、没有词义 | SF-28（当前报 20，测试显式断言） |
 

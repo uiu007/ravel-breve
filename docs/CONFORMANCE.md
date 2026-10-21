@@ -13,6 +13,7 @@
 
 | 层 | 位置 | 说明 |
 |---|---|---|
+| 附录 A 覆盖 | `tests/conformance/req-09-appendix-a.janet` | 规格列出的词逐个「认得」；未冻结的（`seq`/`par`/`Json`）显式断言仍报 20 |
 | 单元 | `tests/unit/*.janet` | 词法 / 转译等内部不变量 |
 | 符合性 | `tests/conformance/req-*.janet` | 逐条 REQ 的验收（文件名即 REQ 号） |
 | 端到端 | `tests/e2e/cli.sh` | 真二进制、真退出码、REPL/--serve 管道 |

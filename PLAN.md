@@ -165,6 +165,20 @@ RavelBreve/
 **验收命令**：`make test -- --req 22..25`；`tests/e2e/duplex.janet`（前端持续收 stream 的同时连发 eval，断言无阻塞、顺序正确）；退出码矩阵。
 **CHK-5 需裁决**：**NDJSON 协议冻结**（消息 schema、错误对象、流式分片粒度）。
 
+**状态：✅ 完成（tag `m5`）**
+- `rb/proto.janet`：协议出口 `rb/proto-sink` + stream 旁路 `rb/proto-tap` + `rb/watch-tick!`。
+- `rb/words/l9.janet`：`watch Agent -- Stream`（只读视图流，先回放再增量，不进本轮列表）。
+- `rb/cli.janet` 重写：REPL（元命令分发 + 未闭合续行）、`-e`、脚本、`--serve`（协议 v1）、`--json`。
+- `rb/stream.janet` 加 `rb/stream-tap` 间接层与 `:chunks` 计数；视图流取尽不 `close`。
+- `rb/runtime.janet` 加 `rb/out-sink`：方言 `print`/`show` 在 `--serve`/`--json` 下改走 stderr（D-40）。
+- 测试：`conformance/req-22-cli`、`req-24-duplex`、`req-25-meta-commands`（重写）、`req-28-show-watch`；
+  e2e 新增 25 项（协议 ping/hello/reset/quit/id 回显/坏 JSON 容错/chunk 交织/`--json`/REPL 元命令）。
+- 计数：单元 + 符合性 **258 / 0**；e2e **74 / 0**；core-only 通过。
+**CHK-5 结论**：协议 v1 冻结 → **D-39**；顺带 D-40（输出分流）、D-41（保留名表）、D-42（watch 语义）、
+D-43（`--json`）、D-44（不做 `subscribe`）。
+**遗留**：SF-18（compact 下限）、SF-20（L9 `subscribe` 重名）、SF-21（「输出 JSON」触发条件）、
+SF-22（附录 F 待冻结项）、SF-23（保留名表）、SF-24（watch 回放范围）待裁决。
+
 ---
 
 ### M6 · 能力层（net / file 外置）

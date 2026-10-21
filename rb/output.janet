@@ -44,6 +44,8 @@
   (def d (or depth 0))
   (cond
     (string? x) (rb/render-string x)
+    # buffer 是可变文本（如 stream 的 :text）→ 同字符串一样保留 UTF-8（D-32）
+    (buffer? x) (string "@" (rb/render-string (string x)))
     (rb/workspace-value? x) "#<workspace>"
     (> d rb/render-max-depth) "#<deep>"
     (tuple? x) (string "(" (string/join (map (fn [v] (rb/render v (+ 1 d))) x) " ") ")")

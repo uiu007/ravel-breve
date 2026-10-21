@@ -1,7 +1,7 @@
 # 符合性矩阵（REQ ↔ 测试）
 
 依据规格：**`ravel-breve-spec-v1.0c.md`**（修订定稿）；`ravel-breve-spec-v1.0b.md` 为历史原文。
-状态：**M4**（词表 L0–L8 + 持久化 L7 + agent / 流 / 钩子 / 收尾已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+状态：**M5**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**（见文末）。
 
@@ -32,8 +32,8 @@
 | REQ-34 | 元层不参与镜像，仅 `体` 递归反转 | ✅ | `conformance/req-05-definition.janet`、`unit/translate.janet` |
 | REQ-35 | `doc`/`see` 读字典；重定义覆盖并告警 | ✅ | `conformance/req-05-definition.janet` |
 | REQ-23 | 退出码分级 | ✅ | `conformance/req-23-exit-codes.janet`、`e2e/cli.sh` |
-| REQ-22 | CLI 四形态 + 提示符 | ✅ | `e2e/cli.sh` |
-| REQ-24 | 前后端分离，NDJSON over stdio | ⏳（骨架已通） | `e2e/cli.sh`（--serve 逐行请求/响应） |
+| REQ-22 | CLI 四形态 + 提示符 + `--json` | ✅ | `e2e/cli.sh`、`conformance/req-22-cli.janet` |
+| REQ-24 | 前后端分离，NDJSON over stdio（双向不阻塞） | ✅ 协议 v1 冻结（D-39） | `conformance/req-24-duplex.janet`、`e2e/cli.sh`（chunk 与 eval 同进程交织） |
 | REQ-38 | 宿主钉 1.42.x，amalgam 静态嵌入 | ✅ | `make check-vendor`、`vendor/janet/VERSION` |
 | REQ-37 | 核心不含 net/file/http/crypto，能力走能力层 | ✅ | `conformance/req-37-cap-boundary.janet`、`make test-core-only` |
 
@@ -57,10 +57,10 @@
 | REQ-19 | `@off @RoundDone` 可禁用 | ✅ | `conformance/req-16-19-hooks.janet` |
 | REQ-20 | 版本化 JSON 快照 + JSONL 增量日志 | ✅ | `conformance/req-20-workspace.janet`、`unit/store.janet`（格式冻结见 D-33） |
 | REQ-21 | compact 三条件（0.5 倍 / 1000 条 / 显式） | ✅ | `conformance/req-21-compact.janet`（小工作区频繁 compact 见 D-37） |
-| REQ-25 | 元命令为无前缀裸词（保留名表） | ✅（保留名表；分发待 M5） | `conformance/req-25-meta-commands.janet` |
+| REQ-25 | 元命令为无前缀裸词（保留名表 + REPL 分发） | ✅ | `conformance/req-25-meta-commands.janet`、`e2e/cli.sh` |
 | REQ-26 | 底栏 token 序列，字符串占位 `"…"` | ⏳ M7 | 前端 |
 | REQ-27 | 主 buffer 为会话视图 | ⏳ M7 | 前端 |
-| REQ-28 | `show` 普通打印；`watch` 语法糖 | ⏳ M5 | |
+| REQ-28 | `show` 普通打印；`watch` 语法糖（视图流） | ✅ | `conformance/req-28-show-watch.janet` |
 | REQ-29 | 按键 `t`/`s`/`c` | ⏳ M7 | 前端（Emacs 优先） |
 | REQ-36 | Stream ≡ fiber，chunk 一次 yield | ✅ | `conformance/req-45-46-round.janet`（两流交错推进）、`unit/stream.janet` |
 
@@ -191,6 +191,35 @@ x 21         # → 42（注意：载入进来的词要下一轮才解析得到�
 
 **compact**：① 日志 > 快照 0.5 倍；② 日志 > 1000 条；③ 显式 `compact`。
 触发后写新快照、清空日志、计数归零。
+
+## M5 词表覆盖（前端订阅，L9）与 CLI
+
+| 层 | 词 | 栈效应 | 用例 |
+|---|---|---|---|
+| L9 | `watch` | `Agent -- Stream` | C:req-28-show-watch、C:req-24-duplex |
+| L1 | `show` / `print` | `X --`（序列逐元素一行） | C:req-28-show-watch |
+
+**视图流语义（D-42）**：先补历史条目，再随 `append` 吐新增；**不进本轮列表**
+（`:agent nil` + `:watch true`），因此默认收尾钩子不会把它并回会话；取尽不 `close`
+（它是常驻观察者）。`--serve` 下每次请求处理完 `rb/watch-tick!` 推进各视图流
+（每次至多 64 块），块走协议 `chunk` 消息。
+
+**CLI 四形态 + 一个开关**
+
+| 形态 | 命令 | 说明 |
+|---|---|---|
+| REPL | `ravel` | 提示符 `ravel> `；栈与字典跨行保留；未闭合块自动续行 |
+| 一行 | `ravel -e '<源码>'` | 打印剩余栈 |
+| 脚本 | `ravel script.breve` | 同上 |
+| 服务 | `ravel --serve` | NDJSON over stdio（协议 v1，`docs/PROTOCOL.md`） |
+| JSON 输出 | `ravel --json …` | 结果按协议消息形状打到 stdout（REQ-22，D-43） |
+
+**元命令（REQ-25 / D-41）**：保留名表 `quit` / `exit` / `help` / `clear`；都是**裸词**且
+**都不是方言词**；`watch` / `save` / `load` 是方言词，因此不在表里（REQ-09）。
+协议侧的裸行一律当源码——元命令属于**前端**的命令表（`clear` → `{"type":"reset"}`）。
+
+**输出分流（D-40 / REQ-43）**：`--serve` 与 `--json` 时，方言的 `print`/`show`
+改走 stderr，stdout 只承载协议消息。
 
 ## 能力层（M3 / M4）
 

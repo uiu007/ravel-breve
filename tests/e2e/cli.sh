@@ -78,6 +78,75 @@ check "--serve 错误带退出码" \
       '{"code":20,"error":"未知的词：nope","ok":false,"type":"result"}' \
       "$(printf 'nope\n' | $RAVEL --serve | head -1)"
 
+# --serve 协议 v1（REQ-24 / REQ-43 / 附录 F）
+sr() { printf '%s\n' "$@" | $RAVEL --serve; }
+
+check "协议：ping → pong" \
+      '{"protocol":1,"type":"pong"}' \
+      "$(sr '{"type":"ping"}' | head -1)"
+check_has "协议：hello 报版本" '"version":"ravel breve' \
+      <(sr '{"type":"hello"}')
+check "协议：eval 回显 id" \
+      '"id":7' \
+      "$(sr '{"type":"eval","src":"1","id":7}' | head -1 | grep -o '"id":7')"
+check "协议：reset 清栈清字典（REQ-42）" \
+      '{"code":20,"error":"未知的词：f","ok":false,"type":"result"}' \
+      "$(sr 'f : [ * 2 ]' '{"type":"reset"}' '{"type":"eval","src":"f 21"}' | tail -1)"
+check "协议：方言 print/show 不污染 stdout（REQ-43）" \
+      '{"ok":true,"stack":[],"type":"result"}' \
+      "$(sr 'show { 1 2 }' 2>/dev/null | head -1)"
+check "协议：方言 show 的输出走 stderr（逐元素）" \
+      "$(printf '1\n2')" \
+      "$(sr 'show { 1 2 }' 2>&1 >/dev/null)"
+check "--serve：{ 1 2 } 是字面量源码不是 JSON 请求" \
+      '{"ok":true,"stack":["(1 2)"],"type":"result"}' \
+      "$(sr '{ 1 2 }' | head -1)"
+check "协议：坏 JSON → 一条 code 2，服务不断（REQ-42）" \
+      '{"ok":true,"stack":["1"],"type":"result"}' \
+      "$(sr '{"type":' '1' | tail -1)"
+check "协议：坏 JSON 只回一条错" \
+      '{"code":2,"error":"请求不是合法 JSON：JSON 解析失败：意外的结束","ok":false,"type":"result"}' \
+      "$(sr '{"type":' '1' | head -1)"
+check "协议：未知请求类型 → code 2" \
+      '"code":2' \
+      "$(sr '{"type":"nope"}' | head -1 | grep -o '"code":2')"
+check_rc "协议：quit 正常退出" 0 bash -c "printf '{"type":"quit"}\n{"type":"ping"}\n' | $RAVEL --serve"
+check "协议：quit 之后不再处理（bye 是最后一行）" \
+      '{"protocol":1,"type":"bye"}' \
+      "$(sr '{"type":"quit"}' '1' | tail -1)"
+
+# REQ-24 双向：推 stream 与收 eval 互不阻塞（同进程交织）
+printf '%s\n' 'watch dup agent "c" { }' 'swap' 'send say "hi"' \
+  '{"type":"eval","src":"1","id":3}' '{"type":"quit"}' > /tmp/rb-e2e-duplex
+check_rc "REQ-24：watch + send + 再来一条请求" 0 $RAVEL --serve < /tmp/rb-e2e-duplex
+check_has "REQ-24：求值过程中就有 chunk 推出" '{"n":0,"stream":"c","text":"ab","type":"chunk"}' /tmp/rb-e2e-out
+check_has "REQ-24：close 带 stream 名与 ok" '{"ok":true,"stream":"c","type":"close"}' /tmp/rb-e2e-out
+check_has "REQ-24：watch 视图把新会话条目推成 chunk" \
+      '{"n":0,"stream":"c","text":"@{:content \"hi\" :role \"user\"}","type":"chunk"}' /tmp/rb-e2e-out
+check "REQ-24：推流之后仍继续收请求（id 3 有结果）" \
+      '3' \
+      "$(grep -o '"id":3' /tmp/rb-e2e-out | head -1 | grep -o '3')"
+
+# --json（REQ-22「输出 JSON」）
+check_rc "--json 成功" 0 $RAVEL --json -e '+ 1 2'
+check "--json 输出一条协议消息" \
+      '{"ok":true,"stack":["3"],"type":"result"}' \
+      "$(cat /tmp/rb-e2e-out)"
+check_rc "--json 失败给分级码（REQ-23：失败不返回 0）" 20 $RAVEL --json -e 'nope'
+check "--json 失败消息形状" \
+      '{"code":20,"error":"未知的词：nope","ok":false,"type":"result"}' \
+      "$(cat /tmp/rb-e2e-out)"
+
+# REPL 元命令（REQ-25）与跨行栈（REQ-22）
+check "REPL：栈跨行保留" \
+      '2' \
+      "$(printf '1\n2\ndepth\n' | $RAVEL 2>/dev/null | sed 's/ravel> //g' | grep -v '^$' | tail -1)"
+check "REPL：clear 清栈（清完 depth 为 0）" \
+      '0' \
+      "$(printf '1\n2\nclear\ndepth\nquit\n' | $RAVEL 2>/dev/null | sed 's/ravel> //g' | grep -v '^$' | tail -1)"
+check_rc "REPL：quit 退出 0" 0 bash -c "printf 'quit\n' | $RAVEL"
+check_has "REPL：help 不退出" 'ravel> ' <(printf 'help\nquit\n' | $RAVEL 2>/dev/null)
+
 # M3：agent / 流 / 钩子（离线 provider）
 check_rc "agent：建 agent 并压栈" 0 $RAVEL -e 'agent "c" { }'
 check "agent：渲染形态" \
@@ -136,6 +205,12 @@ check_rc "IO：read 读回" 0 $RAVEL -e "read \"/tmp/rb-e2e.txt\""
 check "IO：read 渲染" '"hi"' "$(cat /tmp/rb-e2e-out)"
 check_rc "IO：读不存在 → 40" 40 $RAVEL -e "read \"/tmp/rb-e2e-nope.txt\""
 check_rc "IO：载入不存在 → 40" 40 $RAVEL -e "load \"/tmp/rb-e2e-nope.json\""
+check_rc "IO：写不进去 → 41" 41 $RAVEL -e "write \"x\" \"/proc/1/__nope/x\""
+# 编排级 60 需要「核心无能力层」的构建：用只含核心的 bundle 跑同一条源码
+check_rc "编排级：无能力层时 send → 60" 60 \
+      build/janet -e '(each f (parse-all (slurp "build/core-only/rb-bundle.janet")) (eval f (curenv)))
+                      (def r (rb/run-source "send say \"hi\" agent \"c\" { }" "t"))
+                      (os/exit (if (r :ok) 0 (rb/error-code (r :error))))'
 check_rc "工作区：save 非工作区 → 31" 31 $RAVEL -e "save H{ } \"/tmp/rb-e2e-x.json\""
 
 echo "端到端：通过 $pass，失败 $fail"

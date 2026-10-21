@@ -12,6 +12,7 @@
    工作区与它的环境互相登记（`:rb-ws` / `:env`），持久化时按对操作。"
   []
   (def env (table/setproto @{:rb-stack @[]} (curenv)))
+  (when rb/out-sink (put env :out rb/out-sink))
   (def ws (rb/ws-new))
   (put ws :env env)
   (put env :rb-ws ws)

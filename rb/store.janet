@@ -295,6 +295,7 @@
             (eprintf "ravel: 警告：日志末行不完整（崩溃残留），已忽略\n"))))
       (set i (+ i 1))))
   (put ws :loading false)
+  (array/clear (ws :watch))   # 视图流是活的观察者，不随快照复原
   (put ws :path path)
   (put ws :seq n)
   (put ws :snap-size (length text))

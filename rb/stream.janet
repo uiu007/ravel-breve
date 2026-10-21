@@ -7,6 +7,10 @@
 # 一个 Stream 携带它的**标签绑定**（`Label`）以及预先解析好的 agent 句柄
 # （REQ-18 ①：`send` 时就绑定，收尾钩子无需再搜栈）。
 
+# 协议旁路（REQ-24）：serve 模式下，每块/每次关闭**同时**写成一条 NDJSON 消息。
+# 用间接层（同 D-29）让 stream 不必静态依赖 rb/proto.janet 的装载序。
+(var rb/stream-tap nil)
+
 (defn rb/stream?
   [x]
   (and (table? x) (= (get x :kind) :stream)))
@@ -28,6 +32,8 @@
            :it it
            :state :new      # :new → :open → :done | :failed | :stopped
            :text @""
+           :chunks 0        # 已发出的块数（协议用序号，REQ-43/附录 F）
+           :watch false     # 是不是 L9 的只读视图流（不进本轮列表）
            :closed false
            :error nil
            :meta (or meta @{})})
@@ -39,7 +45,8 @@
   [s]
   (unless (s :closed)
     (put s :closed true)
-    (rb/emit "@Close" [s]))
+    (rb/emit "@Close" [s])
+    (when rb/stream-tap (rb/stream-tap s :close nil)))
   s)
 
 (defn rb/stream-next!
@@ -64,15 +71,21 @@
         (let [chunk (get p 1)]
           (cond
             (nil? chunk)
-            (do
-              (put s :state :done)
-              (rb/emit "@Done" [s])
-              (rb/stream-close! s)
-              nil)
+            (if (s :watch)
+              # L9 视图流（REQ-28）：取尽只是「暂时没有新条目」，不是结束——
+              # 关掉它会让前端以为 agent 这一轮结束（REQ-08 的 close 语义）
+              nil
+              (do
+                (put s :state :done)
+                (rb/emit "@Done" [s])
+                (rb/stream-close! s)
+                nil))
 
             (string? chunk)
             (do
               (buffer/push-string (s :text) chunk)
+              (when rb/stream-tap (rb/stream-tap s :chunk chunk))
+              (put s :chunks (inc (s :chunks)))
               (rb/emit "@Chunk" [chunk s])
               chunk)
 

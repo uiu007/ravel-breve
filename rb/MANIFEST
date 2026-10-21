@@ -25,6 +25,8 @@ rb/round.janet
 rb/eval.janet
 rb/store.janet
 rb/words/l7.janet
+rb/proto.janet
+rb/words/l9.janet
 rb/cli.janet
 rb/init.janet
 cap/config.janet

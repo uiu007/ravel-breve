@@ -7,6 +7,11 @@
 # 约定：方言词一律 **0 元**，自己 pop 所需元数、push 结果（§4.9.3）。
 # 栈效应的书写序：附录 A 记法「左 = 栈顶 = 先被消费」。
 
+# 方言 print/show 的输出去向（nil = 宿主缺省 stdout）。
+# serve / --json 模式把它接到 buffer：stdout 只承载协议（REQ-43），
+# 方言输出改走 stderr（诊断通道）。
+(var rb/out-sink nil)
+
 (defn rb/stack
   "取当前 fiber 的数据栈。"
   []

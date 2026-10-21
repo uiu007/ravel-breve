@@ -16,7 +16,8 @@ make check-vendor    # 校验 vendor/janet 的 sha256
 bash tests/e2e/agent.sh  # 真 provider 验收（NVIDIA；无密钥则跳过）
 ```
 
-验收现状：**M2**（词表 L0–L5）。`make test` → 147 单元/符合性 + 22 端到端 + core-only 全绿。
+验收现状：**M5**（词表 L0–L9 + 持久化 + CLI / NDJSON 协议 v1）。
+`make test` → 258 单元/符合性 + 74 端到端 + core-only 全绿。
 
 ```sh
 make clean && make
@@ -36,9 +37,13 @@ ravel                       # REPL（栈跨行保留）
 ravel -e '<一行>'            # 求值一行并打印剩余栈
 ravel script.breve          # 执行脚本
 ravel --serve               # NDJSON over stdio（前后端分离，REQ-24）
+ravel --json ...            # 结果按协议消息形状输出（REQ-22）
 ravel --dump ...            # 打印转译产物（REQ-31）
 ravel -v | -h
 ```
+
+REPL 的元命令是**裸词**（REQ-25）：`help` / `clear` / `quit` / `exit`。
+它们**不是方言词**（在代码里写 `help` 是 20 未知的词）——`watch`、`save`、`load` 是方言词，故不在此列。
 
 ## 方言要点
 
@@ -142,6 +147,26 @@ x 21                           # → 84：字典与栈都回来了
 - **载入进来的词下一轮才解析得到**（转译先于执行，D-38）：`load` 之后的同一轮里调新词会报 20。
 - 核心不碰文件：`read` / `write` / `save` / `load` / `compact` 全部经 `:fs/*`、`:json/*`
   能力键；`--core-only` 时报 60。
+
+## 前后端分离与协议（M5）
+
+编辑器只是前端（渲染 + 输入），`ravel --serve` 是唯一求值者，两者用 **NDJSON over stdio**（协议 v1，
+见 `docs/PROTOCOL.md`）：
+
+```sh
+$ printf '%s\n' '{"type":"ping"}' 'agent "c" { }' '{"type":"eval","src":"+ 1 2","id":7}' | ravel --serve
+{"protocol":1,"type":"pong"}
+{"ok":true,"stack":["@{:kind :agent :label \"c\" …}"],"type":"result"}
+{"id":7,"ok":true,"stack":["…","3"],"type":"result"}
+```
+
+- 裸文本一行 = `eval` 的简写；`{ 1 2 }` 这种以 `{` 开头的**字面量**仍当源码（判定见 D-39）。
+- 流式：求值过程中就有 `{"type":"chunk","stream":"c","n":0,"text":"ab"}`，
+  结束时 `{"type":"close","stream":"c","ok":true}`——**收 eval 与推流互不阻塞**（REQ-24）。
+- 工作区（字典 + 栈）跨请求保留（REQ-42）；`{"type":"reset"}` 换一个干净的。
+- stdout **只承载协议**：方言的 `print`/`show` 与所有诊断走 stderr（D-40 / REQ-43）。
+- 前端订阅：`watch`（L9）给出 agent 会话的**只读视图流**——先回放历史，再随 `append` 吐新增条目，
+  每次请求处理完后推送（每次至多 64 块）。视图流不进本轮列表，因此不会被收尾钩子并回会话（D-42）。
 
 ## 目录
 

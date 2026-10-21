@@ -87,6 +87,12 @@
   (def r (run-in env src))
   (if (r :ok) (tup (r :stack)) [:__error__ (rb/error-msg (r :error))]))
 
+(defn eval-top-in
+  "同 eval-top，但复用给定工作区。"
+  [env src]
+  (def r (run-in env src))
+  (if (r :ok) (last (r :stack)) [:__error__ (rb/error-msg (r :error))]))
+
 (defn ws-hooks
   "某工作区的钩子表（事件名 → 数组）。"
   [env]

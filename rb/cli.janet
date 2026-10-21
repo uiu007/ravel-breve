@@ -1,19 +1,24 @@
-# rb/cli.janet —— CLI 与前后端分离骨架（REQ-22 / REQ-23 / REQ-24 / REQ-25）
+# rb/cli.janet —— CLI 与前后端分离（REQ-22 / REQ-23 / REQ-24 / REQ-25 / REQ-43）
 #
-# 形态：ravel（REPL）/ ravel -e "<一行>" / ravel script.breve / ravel --serve
-# 退出码由 rb/exit.janet 分级（REQ-23）。
-# --serve 为 NDJSON over stdio：每行一条 ravel 源码，回一行 JSON 结果；
-#   工作区（字典 + 栈）跨请求保留（REQ-42）。
+# 形态：
+#   ravel                  REPL（提示符 `ravel> `，栈在一个工作区里跨行保留）
+#   ravel -e "<一行>"       求值一行
+#   ravel script.breve     执行脚本
+#   ravel --serve          NDJSON over stdio（协议 v1，见 docs/PROTOCOL.md）
+#   ravel --json …         把结果按协议消息形状打到 stdout（REQ-22「输出 JSON」）
 #
-# REQ-25：元命令是**无前缀裸词**，与代码的分界由编辑器 minibuffer 承担；
-#   因此后端只需一份**保留名表**，并保证这些名字不被解释为方言词。
-#   完整分发（提示符 / 帮助 / 清屏）在 M5，本处先冻结名单。
+# 退出码由 rb/exit.janet 分级（REQ-23 / 附录 E）。
+#
+# REQ-25：元命令是**无前缀裸词**，与 ravel 代码的分界由编辑器 minibuffer 承担。
+# 因此后端只冻结一份**保留名表**，并保证这些名字不是方言词（在代码里出现即 20）。
+# 保留名表**不得**与词表重名（REQ-09：一个名字只有一种词性）——`watch` 是方言词
+# （L9），所以它不在这里。
 
 (def rb/version-string "ravel breve 1.0c · janet 1.42.1")
 
-# REQ-25：保留的元命令名（无前缀裸词）。
+# REQ-25：保留的元命令名（无前缀裸词，均不是方言词）
 (def rb/meta-commands
-  @["quit" "exit" "help" "clear" "agents" "watch" "unwatch" "save" "load"])
+  @["quit" "exit" "help" "clear"])
 
 (defn rb/meta-command?
   [s]
@@ -29,64 +34,192 @@
   (print "  ravel script.breve        执行脚本")
   (print "  ravel --serve             NDJSON over stdio（REQ-24）")
   (print "  ravel --dump ...          打印转译产物（REQ-31）")
+  (print "  ravel --json ...          按协议消息形状输出（REQ-22）")
   (print "  ravel -v | -h"))
+
+# ---- 结果 → 文本 / 协议消息 ---------------------------------------------
+
+(defn rb/cli-result-msg
+  "把一次求值结果变成协议消息（附录 F；`id` 原样回显，REQ-24）。"
+  [r &opt id]
+  (def msg (if (r :ok)
+             @{:type "result"
+               :ok true
+               :stack (map rb/render (r :stack))}
+             @{:type "result"
+               :ok false
+               :code (rb/error-code (r :error))
+               :error (rb/error-msg (r :error))}))
+  (when (not (nil? id)) (put msg :id id))
+  msg)
+
+(defn rb/cli-encode
+  "一条协议消息 → 一行 JSON；缺能力层返回 nil（REQ-37）。"
+  [msg]
+  (def encode (rb/cap-get :json/encode))
+  (if (nil? encode) nil (encode msg)))
 
 (defn rb/cli-report
   "把一次求值结果写到 stdout/stderr，返回退出码。"
-  [r dump?]
+  [r dump? json?]
   (when dump?
-    (print (get r :code "")))
-  (if (r :ok)
-    (do
-      (each v (r :stack) (print (rb/render v)))
-      0)
-    (do
-      (eprintf "ravel: %s\n" (rb/error-msg (r :error)))
-      (rb/error-code (r :error)))))
+    # REQ-43：json 模式下 stdout 只承载协议，诊断走 stderr
+    (if json?
+      (eprintf "dump: %s\n" (get r :code ""))
+      (print (get r :code ""))))
+  (if json?
+    (let [line (rb/cli-encode (rb/cli-result-msg r))]
+      (if (nil? line)
+        (do (eprintf "ravel: --json 需要能力层 cap/json（REQ-37）\n")
+            (rb/exit-table :orchestration-base))
+        (do (print line) (flush)
+            (if (r :ok) 0 (rb/error-code (r :error))))))
+    (if (r :ok)
+      (do
+        (each v (r :stack) (print (rb/render v)))
+        0)
+      (do
+        (eprintf "ravel: %s\n" (rb/error-msg (r :error)))
+        (rb/error-code (r :error))))))
+
+(defn rb/cli-out-begin
+  "开始捕获方言 print/show 的输出（REQ-43：stdout 只承载协议）。"
+  [&opt buf]
+  (set rb/out-sink (or buf @""))
+  rb/out-sink)
+
+(defn rb/cli-out-flush!
+  "把捕获到的方言输出转去 stderr 并清空（诊断通道）。"
+  []
+  (def b rb/out-sink)
+  (when (and b (> (length b) 0))
+    (file/write stderr b)
+    (file/flush stderr)
+    (buffer/clear b))
+  nil)
 
 (defn rb/cli-run-source
-  [src name dump? &opt env]
+  [src name dump? json? &opt env]
+  (when json? (rb/cli-out-begin))
   (def r (try
            (rb/run-source src name env)
            ([e] {:ok false :error e :stack @[]})))
-  (rb/cli-report r dump?))
+  (when json? (rb/cli-out-flush!))
+  (rb/cli-report r dump? json?))
+
+# ---- REPL 与元命令（REQ-22 / REQ-25）------------------------------------
+
+(defn rb/cli-meta
+  "REPL 的元命令分发：返回 nil = 继续读，数字 = 退出码。"
+  [line env]
+  (cond
+    (or (= line "quit") (= line "exit")) 0
+    (= line "help") (do (rb/cli-usage) nil)
+    # clear = 清空变量空间（栈），保留字典与钩子（REQ-25）
+    (= line "clear") (do (array/clear (env :rb-stack)) nil)
+    nil))
 
 (defn rb/cli-repl
-  [dump?]
+  [dump? json?]
   (def env (rb/new-env)) # REPL 内栈跨行保留
   (var buf "")
   (var running true)
+  (var exit 0)
   (while running
     (def raw (getline (if (empty? buf) "ravel> " "     > ")))
     # 注意：janet 的 getline 在 EOF 返回空 buffer（不是 nil），且含尾部换行
     (if (empty? raw)
       (set running false)
       (do
-        (set buf (string buf (string/trimr (string raw)) "\n"))
-        (def p (try (rb/lex buf "repl") ([e] {:error e})))
-        (cond
-          (get p :error)
-          (do (eprintf "ravel: %s\n" (rb/error-msg (p :error)))
-              (set buf ""))
-
-          (p :incomplete) nil
-
+        (def line (string/trimr (string raw)))
+        (if (and (empty? buf) (rb/meta-command? line))
+          # 元命令只认「单独一行、且没有待续的块」，其余一律当方言代码（REQ-25）
+          (let [code (rb/cli-meta line env)]
+            (when (not (nil? code))
+              (set running false)
+              (set exit code)))
           (do
-            (when (> (length (p :stmts)) 0)
-              (def r (try
-                       (rb/run-source buf "repl" env)
-                       ([e] {:ok false :error e :stack (env :rb-stack)})))
-              # REPL 也报告栈（同 -e），错误走 stderr 且不退出
-              (rb/cli-report r dump?))
-            (set buf ""))))))
-  0)
+            (set buf (string buf line "\n"))
+            (def p (try (rb/lex buf "repl") ([e] {:error e})))
+            (cond
+              (get p :error)
+              (do (eprintf "ravel: %s\n" (rb/error-msg (p :error)))
+                  (set buf ""))
+
+              (p :incomplete) nil
+
+              (do
+                (when (> (length (p :stmts)) 0)
+                  (when json? (rb/cli-out-begin))
+                  (def r (try
+                           (rb/run-source buf "repl" env)
+                           ([e] {:ok false :error e :stack @[]})))
+                  # REPL 也报告栈（同 -e），错误走 stderr 且不退出
+                  (when json? (rb/cli-out-flush!))
+                  (rb/cli-report r dump? json?)
+                  (when (not (r :ok)) (set exit 0)))
+                (set buf ""))))))))
+  exit)
+
+# ---- --serve：NDJSON over stdio（REQ-24 / REQ-42 / REQ-43）---------------
+
+(defn rb/serve-json-line?
+  "这一行是 JSON 请求还是 ravel 源码？
+   `{ 1 2 }`（字面量）与 `{\"type\":\"eval\"}`（请求）都以 `{` 开头，
+   故判定为：`{` 之后（跳过空白）紧跟 `\"`（协议 v1，见 docs/PROTOCOL.md）。"
+  [line]
+  (def t (string/triml (string line)))
+  (and (string/has-prefix? "{" t)
+       (string/has-prefix? "\"" (string/triml (string/slice t 1)))))
+
+(defn rb/serve-parse
+  "一行请求 → 表 `{:type … :msg … :error …}`。
+   裸文本 = `eval` 的简写（附录 F）；`{ … }` = 显式 JSON 请求（协议 v1）。"
+  [line decode]
+  (if (rb/serve-json-line? line)
+    (let [p (protect (decode line))
+          m (get p 1)]
+      (cond
+        (not (get p 0)) {:type "bad" :error (string "请求不是合法 JSON：" (rb/error-msg m))}
+        (not (table? m)) {:type "bad" :error "请求必须是 JSON 对象"}
+        {:type (string (get m "type" "eval")) :msg m}))
+    {:type "eval" :msg @{"type" "eval" "src" line}}))
+
+(defn rb/serve-bad
+  "协议错误：一条失败响应，但**不**终止循环（REQ-42）。"
+  [error &opt id]
+  (def msg @{:type "result" :ok false :code 2 :error error})
+  (when (not (nil? id)) (put msg :id id))
+  (rb/proto-emit msg)
+  msg)
+
+(defn rb/serve-eval
+  [env src id dump?]
+  (def r (try
+           (rb/run-source src "<serve>" env)
+           ([e] {:ok false :error e :stack @[]})))
+  (when dump?
+    # REQ-43：stdout 只承载协议 → 转译产物走 stderr
+    (eprintf "dump: %s\n" (get r :code "")))
+  (def msg (rb/cli-result-msg r id))
+  (rb/proto-emit msg)
+  msg)
 
 (defn rb/cli-serve-loop
   [dump?]
   # 能力层走显式注册表（§4.11）：核心不静态依赖 cap/，剔除 cap/ 后仍可装载
   (def encode (rb/cap-get :json/encode))
-  (def env (rb/new-env)) # REQ-42：工作区（字典 + 栈）跨请求保留
+  (def decode (rb/cap-get :json/decode))
+  (rb/cli-out-begin)     # 方言 print/show 走 stderr，不污染协议 stdout（REQ-43）
+  (var env (rb/new-env)) # REQ-42：工作区（字典 + 栈）跨请求保留
+  # 注意：必须写**真正的** stdout——求值期间的 fiber 里 `print` 会被
+  # `rb/out-sink` 截获（那是方言输出通道，见 rb/cli-out-begin）
+  (set rb/proto-sink (fn [msg]
+                       (file/write stdout (string (encode msg) "\n"))
+                       (file/flush stdout)))
+  (set rb/stream-tap rb/proto-tap)
   (var running true)
+  (var exit 0)
   (while running
     (def raw (getline ""))
     (if (empty? raw)
@@ -94,28 +227,56 @@
       (do
         (def line (string/trimr (string raw)))
         (when (not (empty? line))
-          (def r (try
-                   (rb/run-source line "<serve>" env)
-                   ([e] {:ok false :error e :stack @[]})))
-          (when dump?
-            (eprintf "dump: %s\n" (get r :code "")))
-          (def msg (if (r :ok)
-                     @{:type "result"
-                       :ok true
-                       :stack (map rb/render (r :stack))}
-                     @{:type "result"
-                       :ok false
-                       :code (rb/error-code (r :error))
-                       :error (rb/error-msg (r :error))}))
-          (print (encode msg))
-          (flush)))))
-  0)
+          (def req (rb/serve-parse line decode))
+          (def m (req :msg))
+          (def id (if (table? m) (get m "id") nil))
+          (case (req :type)
+            "eval"
+            (do
+              (def src (get m "src"))
+              (if (string? src)
+                (rb/serve-eval env src id dump?)
+                (rb/serve-bad "eval 需要字符串字段 src（协议 v1）" id)))
+
+            "ping" (rb/proto-emit @{:type "pong" :protocol rb/protocol-version})
+
+            "hello"
+            (rb/proto-emit @{:type "hello"
+                             :protocol rb/protocol-version
+                             :version rb/version-string})
+
+            "reset"
+            (do
+              (set env (rb/new-env))
+              (def msg @{:type "result" :ok true :stack @[]})
+              (when (not (nil? id)) (put msg :id id))
+              (rb/proto-emit msg))
+
+            "quit"
+            (do
+              (rb/proto-emit @{:type "bye" :protocol rb/protocol-version})
+              (set running false))
+
+            "bad" (rb/serve-bad (req :error) id)
+
+            (do
+              (rb/serve-bad (string "未知的请求类型：" (req :type) "（协议 v1 只认 eval/ping/hello/reset/quit）")
+                            id)))
+          (rb/cli-out-flush!)
+          # REQ-24：请求处理完再把视图流推给前端——前端可边收边写
+          (when running (rb/watch-tick! env))))))
+  (set rb/proto-sink nil)
+  (set rb/stream-tap nil)
+  exit)
+
+# ---- 入口 ---------------------------------------------------------------
 
 (defn rb/cli-main
   [argv]
   (def n (length argv))
   (var i 0)
   (var dump? false)
+  (var json? false)
   (var src nil)
   (var file nil)
   (var serve? false)
@@ -133,6 +294,9 @@
       (= a "--dump")
       (do (set dump? true) (++ i))
 
+      (= a "--json")
+      (do (set json? true) (++ i))
+
       (or (= a "-e") (= a "--eval"))
       (if (>= (inc i) n)
         (do (eprintf "ravel: -e 需要一个参数\n") (set exit (rb/exit-table :usage)))
@@ -149,16 +313,16 @@
     (not= exit 0) exit
     done? exit
     serve? (do
-             (if (nil? (rb/cap-get :json/encode))
+             (if (or (nil? (rb/cap-get :json/encode)) (nil? (rb/cap-get :json/decode)))
                (do (eprintf "ravel: --serve 需要能力层 cap/json（REQ-37）\n")
                    (set exit (rb/exit-table :internal)))
                nil)
              (if (= exit 0) (rb/cli-serve-loop dump?) exit))
-    (not (nil? src)) (rb/cli-run-source src "<-e>" dump?)
+    (not (nil? src)) (rb/cli-run-source src "<-e>" dump? json?)
     (not (nil? file))
     (let [p (protect (slurp file))]
       (if (get p 0)
-        (rb/cli-run-source (get p 1) file dump?)
+        (rb/cli-run-source (get p 1) file dump? json?)
         (do (eprintf "ravel: 无法读取 %s：%s\n" file (rb/error-msg (get p 1)))
             (rb/exit-table :io-read))))
-    (rb/cli-repl dump?)))
+    (rb/cli-repl dump? json?)))

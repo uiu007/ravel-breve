@@ -36,6 +36,7 @@
     :hooks @{"@RoundDone" @[(fn [] (when rb/default-round-done (rb/default-round-done)))]}
     :agents @[]
     :round @[]
+    :watch @[]     # L9 被 watch 的视图流（REQ-28）
     :path nil      # 持久化目标（nil = 不落盘；REQ-20）
     :seq 0         # 已写入日志的记录数
     :snap-size 0})  # 快照文件字节数（REQ-21 的 0.5 倍判据）

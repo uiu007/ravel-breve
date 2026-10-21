@@ -325,3 +325,60 @@
 - **处置**：文档写清「载入后先 `pop`，下一轮再用新词」；不改转译模型（那会引入隐藏的两阶段求值）。
 - **同理**：`load` 的结果是工作区句柄，会留在栈上——REQ-20 的 `Path -- Workspace` 就是如此，用户 `pop` 掉即可；
   `rb/render` 因此把工作区渲染成 `#<workspace>` 占位（否则打印栈会把 `:env` 的环无限展开）。
+
+## D-39 NDJSON 协议 v1 冻结（M5 / CHK-5）
+
+- **请求集**：裸文本（= 不带 `id` 的 `eval`）、`eval`、`ping`、`hello`、`reset`、`quit`；
+  响应集：`result`、`chunk`、`close`、`pong`、`hello`、`bye`。
+- **一行一消息**：一个请求恰有一条**终结**响应；求值过程中可先冒出任意多条 `chunk`/`close`。
+- **JSON 请求判定**：行首 `{` 之后（跳过空白）紧跟 `"` 才算 JSON；因此 `{ 1 2 }` 仍是字面量表达式
+  （否则方言的元组字面量在 `--serve` 里无法书写）。
+- **`id` 原样回显**：请求带 `id` 就回显，用于前端配对；没有就不带该字段。
+- **错误不终止**：坏 JSON / 未知 `type` / 缺 `src` → `result{ok:false,code:2}`，循环继续（REQ-42）。
+- **chunk 序号**：`n` 从 0 起、按流独立连续（前端排序/去重）；`close.ok=false` 表示该流失败。
+- **`reset`**：换一个全新工作区（字典 + 栈 + agent + 视图流），因此也是前端 `clear` 的落点。
+- **验收**：`C:req-24-duplex`、`tests/e2e/cli.sh`（协议段）、`docs/PROTOCOL.md`。
+
+## D-40 方言输出与协议输出分流（M5）
+
+- **问题**：`show`/`print` 默认写 stdout，会污染 `--serve` 的协议流（REQ-43「stdout 只承载协议」）。
+- **做法**：`rb/runtime.janet` 加 `rb/out-sink`；`rb/new-env` 把它注入 env 的 `:out`，
+  于是求值 fiber 里的 `print`/`show` 写进捕获 buffer；每轮结束由 `rb/cli-out-flush!` 转到 **stderr**。
+- **坑**：协议 sink 自己也用 `print`，会被同一 capture 截获（chunk 消息“消失”）→ sink 改为显式
+  `file/write stdout` + `file/flush`。
+
+## D-41 元命令保留名表：`quit` / `exit` / `help` / `clear`（M5）
+
+- **约束**：REQ-09 一个名字只有一种词性 → 保留名**不得**是方言词。
+  故 `watch`（L9）、`save` / `load` / `current` / `compact`（L7）**不进**表；
+  M2 曾把 `watch`/`save`/`load`/`agents` 列为元命令，M5 修正（`agents` 还是 §5 的禁用词）。
+- **分发位置**：只在 **REPL**（`rb/cli-meta`）。协议侧裸行一律当源码——按 REQ-25，元命令属于
+  **前端**的命令表；前端把 `clear` 翻成 `{"type":"reset"}`。
+- **`clear` 语义**：清空变量空间（数据栈），保留字典与钩子（字典是工作区的一部分，REQ-20）。
+- **验收**：`C:req-25-meta-commands`、`e2e/cli.sh`（`help`/`clear`/`quit`）。
+
+## D-42 `watch` = 只读视图流（M5 / REQ-28）
+
+- **形态**：`watch Agent -- Stream`，先补历史会话条目，再随 `append` 吐新增；一条目一块。
+- **不进本轮列表**：视图流的 `:agent` 为 nil 且 `:watch true`，**不**进 `ws :round`。
+  否则默认收尾钩子会把它当本轮产物 `append` 回会话——会话会自我膨胀（实测过）。
+- **取尽不 close**：`rb/stream-next!` 对视图流「暂时没有新条目」返回 nil 但保持 `:open`；
+  发 `close` 会让前端误判这一轮结束（REQ-08 的 close 只属于真流）。
+- **推送**：`rb/watch-tick!` 在每次请求处理完后推进所有视图流，每次至多 **64 块**
+  （宁可下轮再推，也不让输入饿死 → REQ-24 双向不阻塞）。视图流不随快照持久化（是活的观察者）。
+- **验收**：`C:req-28-show-watch`、`C:req-24-duplex`、`e2e/cli.sh`（watch 推送段）。
+
+## D-43 REQ-22「输出 JSON」= 显式 `--json` 开关（M5）
+
+- **歧义**：REQ-22 说 CLI「输出 JSON」，但没说何时。默认把所有输出都做成 JSON 会让人类使用时难读。
+- **选择**：缺省人类可读（逐元素打印剩余栈）；`--json` 时输出一条协议 `result` 消息。
+- **失败仍给分级码**：`--json` 不吞退出码（`ravel --json -e 'nope'` → 退出码 20，stdout 是失败消息）。
+- **记入反馈**：SF-21。
+
+## D-44 不实现 L9 的 `subscribe`（M5）
+
+- **冲突**：附录 A 的 L9 列了 `watch` / `subscribe` / `unsubscribe`，而 L4 已有
+  `unsubscribe Agent -- Agent`（M3 实现并测试）。REQ-09 一个名字一种词性 → 不能两义并存。
+- **选择**：保留 L4 的 `unsubscribe`（语义明确：注销出缺省广播域），**不实现** `subscribe`；
+  L9 的「订阅」能力由 `watch` 覆盖（前端拿视图流）。
+- **记入反馈**：SF-20。

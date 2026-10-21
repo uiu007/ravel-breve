@@ -19,7 +19,7 @@ bash tests/e2e/agent.sh  # 真 provider 验收（NVIDIA；无密钥则跳过）
 
 验收现状：**M6**（词表 L0–L9 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
 工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边）。
-`make test` → 277 单元/符合性 + 80 端到端 + core-only 全绿；`make test-agent` → 真 NVIDIA 10/0。
+`make test` → 286 单元/符合性 + 80 端到端 + core-only 全绿；`make test-agent` → 真 NVIDIA 10/0。
 
 ```sh
 make clean && make

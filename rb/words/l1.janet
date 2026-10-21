@@ -109,6 +109,11 @@
   []
   (def n (rb/pop))
   (def s (rb/pop))
+  # 序列（string/tuple/array）要整数下标；表（table/struct）任意键，缺键 = nil（D-50）
+  (def seq? (or (string? s) (array? s) (tuple? s) (buffer? s)))
+  (when (and seq? (not (number? n)))
+    (rb/raise (rb/exit-table :runtime-type)
+              (string "at 需要整数下标，得到 " (type n) "（表才用键）")))
   (def i (if (< n 0) (+ (length s) n) n))
   (rb/push (if (string? s)
              (string/slice s i (inc i))

@@ -52,7 +52,16 @@
   (when (nil? f)
     (rb/raise (rb/exit-table :runtime-type)
               (string "能力层未提供 " key "（核心不含 JSON 实现，附录 D）")))
-  (f x))
+  (def p (protect (f x)))
+  (if (get p 0)
+    (get p 1)
+    (do
+      (def e (get p 1))
+      # 能力层自己带了分级码（如 fs 的 40/41）就原样传；宿主级错误归入 31（类型/值）
+      (if (rb/rb-error? e)
+        (rb/raise (get e :rb-code) (get e :rb-msg))
+        (rb/raise (rb/exit-table :runtime-type)
+                  (string key " 调用失败：" (rb/error-msg e)))))))
 
 (defn rb/to-json
   "x -- String"

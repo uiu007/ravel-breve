@@ -237,3 +237,11 @@
 - **当前实现**：接受并**存下**，但不执行（`rb/agent` 先 pop 标签再 pop 会话，第三引号留在
   agent 的 `:behavior` 字段）。用 `@on` 装钩子可以做到同样的事，且可关闭。
 - **建议**：v1.1 要么给 `behavior` 明确语义（何时跑、能否出栈），要么从签名里删掉。
+
+## SF-27 `session` 的栈效应前后不一致（附录 A · L3）
+
+- **位置**：附录 A 写 `session` `Workspace -- Session`（「取会话」），但 REQ-50 的标准写法是
+  在 `@RoundDone` 钩子里 `take -4 session`——那里栈上是**一个 agent**，不是工作区；
+  一个工作区里可以有多个 agent，「取会话」也就没有唯一答案。
+- **当前实现**：`session` = **`Agent -- Session`**（取该 agent 的会话），`Ws` 另有名词可取工作区。
+- **建议**：附录 A 改成 `Agent -- Session`，并在 §4.6 说明「工作区 = 字典 + 栈；agent 是栈上的变量」。

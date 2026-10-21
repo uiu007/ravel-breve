@@ -18,7 +18,7 @@
 ## 2. 验收
 
 ```
-make test        → 277 单元/符合性 + 80 端到端 + core-only 全绿
+make test        → 286 单元/符合性 + 80 端到端 + core-only 全绿
 make test-agent  → 真 NVIDIA 10 / 0
 ```
 
@@ -36,11 +36,13 @@ make test-agent  → 真 NVIDIA 10 / 0
 4. **压缩策略在用户侧**（D-49）：核心只给零件，不内置算法。
 5. **`subscribe` 推翻 D-44**：与 `unsubscribe` 是一对反义动词，符合 REQ-09。
 
+打磨项已收（D-50）：`at` 的下标类型、能力调用失败的分级码、`rb/render` 的定值输出。
+
 ## 4. 仍未定（等你裁决，不阻塞）
 
 | 项 | 记录 |
 |---|---|
 | `seq` / `par` 的栈效应、结果、`par` 的并发语义 | SF-25（当前报 20「未知的词」） |
 | `agent` 的第三个引号 `behavior` 仍无定义 | SF-26（接受并存储，但不执行） |
-| `session` 的实参：spec 写 `Workspace -- Session`，实现为 `Agent -- Session` | 待 v1.1 统一 |
-| `from-json` 非法 JSON 的错误码（30 vs 31）、`rb/render` 对 Stream/Agent 的显示 | 打磨项 |
+| `session` 的实参：spec 写 `Workspace -- Session`，实现为 `Agent -- Session` | SF-27（建议改 spec） |
+

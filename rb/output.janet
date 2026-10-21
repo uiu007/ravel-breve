@@ -47,6 +47,9 @@
     # buffer 是可变文本（如 stream 的 :text）→ 同字符串一样保留 UTF-8（D-32）
     (buffer? x) (string "@" (rb/render-string (string x)))
     (rb/workspace-value? x) "#<workspace>"
+    # 函数/纤程的内部地址每进程不同 → 渲染成定值，保证同一工作区输出可复现（D-50）
+    (function? x) "#<function>"
+    (fiber? x) "#<fiber>"
     (> d rb/render-max-depth) "#<deep>"
     (tuple? x) (string "(" (string/join (map (fn [v] (rb/render v (+ 1 d))) x) " ") ")")
     (array? x) (string "@[" (string/join (map (fn [v] (rb/render v (+ 1 d))) x) " ") "]")

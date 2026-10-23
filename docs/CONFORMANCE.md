@@ -1,11 +1,11 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0d.md`**（agent 基本能力定稿，待 CHK-6 追认）；
+依据规格：**`ravel-breve-spec-v1.0e.md`**（实现反馈冻结版，待 CHK-7 追认）；
 `ravel-breve-spec-v1.0c.md` / `ravel-breve-spec-v1.0b.md` 为历史原文。
 状态：**M6**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
-> v1.0d 新增 **REQ-47…REQ-51**（见文末）。
+> v1.0d 新增 **REQ-47…REQ-51**（见文末）；**v1.0e 不新增 REQ**（只把 SF-14…SF-35 冻结，见其附录 I）。
 
 跑法：`make test`（单元 + 符合性 + 端到端 + 附录 D）。
 
@@ -18,6 +18,7 @@
 | 符合性 | `tests/conformance/req-*.janet` | 逐条 REQ 的验收（文件名即 REQ 号） |
 | 端到端 | `tests/e2e/cli.sh` | 真二进制、真退出码、REPL/--serve 管道 |
 | 附录 D | `make test-core-only` | 剔除 `cap/` 后核心仍可独立装载并完成主脊 |
+| 前端层（**规格外**） | `tests/unit/line.janet` | REPL 行编辑器：Emacs / Vim 键位、模式切换、历史、CJK 退格、扩展点（D-57 / SF-35） |
 
 ## §4.1–4.5 记法与执行模型
 
@@ -205,7 +206,7 @@ x 21         # → 42（注意：载入进来的词要下一轮才解析得到�
 | `llm-get` | `Key -- Value`（**生效值**：配置 > 环境变量 > 缺省） | U:config、e2e |
 | `llm-set` | `Value Key --`（`nil` = 删除；白名单外 31，`key` 60） | U:config、e2e |
 
-这三个词是 v1.0d 之后的**追加**（规格附录 A 尚无，见 SF-32）。
+这三个词在 v1.0e 已进附录 A · L2（SF-32 的处置）。
 
 **失败求值的栈语义（D-55）**：一次求值 = 一个事务；出错则栈回到求值前
 （副作用不回滚）。故 `+ 1` 在空栈上只报 30，不留半截操作数；

@@ -3,7 +3,7 @@
 **波兰（前缀）式书写、类 Forth 栈机执行**的 **agent 会话编排方言**，宿主为 Janet 1.42.x（amalgamated，静态嵌入）。
 
 - 命令：`ravel`，脚本扩展名 `.breve`，提示符 `ravel> `
-- 规格（现行）：`ravel-breve-spec-v1.0d.md`（agent 基本能力定稿，待 CHK-6 追认）；
+- 规格（现行）：`ravel-breve-spec-v1.0e.md`（实现反馈冻结版，待 CHK-7 追认）；
   `ravel-breve-spec-v1.0c.md` / `ravel-breve-spec-v1.0b.md` 保留为历史（不删改）
 - 规格反馈（缺陷/留白）：`docs/SPEC-FEEDBACK.md`
 - 开发计划与检查点：`PLAN.md`
@@ -19,11 +19,11 @@ bash tests/e2e/agent.sh  # 真 provider 验收（NVIDIA；无密钥则跳过）
 
 验收现状：**M6**（词表 L0–L9 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
 工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边）。
-`make test` → 304 单元/符合性 + 94 端到端 + 11 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0。
+`make test` → 326 单元/符合性 + 94 端到端 + 11 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0。
 
 ```sh
 make clean && make
-./bin/ravel -v                         # ravel breve 1.0d · janet 1.42.1
+./bin/ravel -v                         # ravel breve 1.0e · janet 1.42.1
 ./bin/ravel --dump -e 'take 2 "abcde"' # (do (rb/push "abcde") (rb/push 2) (rb/take))
 ./bin/ravel -e 'take 2 "abcde"'        # "ab"
 ./bin/ravel -e 'map [ * 2 ] { 1 2 3 }' # (2 4 6)

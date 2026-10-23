@@ -103,13 +103,27 @@
     (def ws (env :rb-ws))
     (put ws :path (sp "ratio.json"))
     (put ws :seq 1)
-    (rb/store-file-write "0123456789" (sp "ratio.json"))         # 快照 10 字节
-    (put ws :snap-size 10)
-    (rb/store-file-write "01234" (string (sp "ratio.json") ".log"))   # 日志 5 = 0.5
+    (rb/store-file-write (string/repeat "0" 2048) (sp "ratio.json"))   # 快照 2048 字节
+    (put ws :snap-size 2048)
+    (rb/store-file-write (string/repeat "0" 1024) (string (sp "ratio.json") ".log"))  # 1024 = 0.5
     (is= 0.5 ((rb/store-log-ratio ws) :ratio))
     (is (not (rb/store-compact-needed? ws)) "恰好 0.5 不触发")
-    (rb/store-file-write "012345" (string (sp "ratio.json") ".log"))  # 6 = 0.6
+    (rb/store-file-write (string/repeat "0" 1025) (string (sp "ratio.json") ".log"))  # 1025 > 1024
     (is (rb/store-compact-needed? ws) "超过 0.5 触发")))
+
+(deftest "REQ-21：主判据有 512 字节下限（小工作区不每轮 compact）"
+  (fn []
+    (def env (new-ws))
+    (def ws (env :rb-ws))
+    (put ws :path (sp "floor.json"))
+    (put ws :seq 1)
+    (rb/store-file-write (string/repeat "0" 10) (sp "floor.json"))     # 快照 10 字节
+    (put ws :snap-size 10)
+    (rb/store-file-write (string/repeat "0" 500) (string (sp "floor.json") ".log"))
+    (is= 50 ((rb/store-log-ratio ws) :ratio))
+    (is (not (rb/store-compact-needed? ws)) "比例远超 0.5，但日志 < 512 字节 → 不触发")
+    (rb/store-file-write (string/repeat "0" 513) (string (sp "floor.json") ".log"))
+    (is (rb/store-compact-needed? ws) "日志越过 512 字节 → 触发")))
 
 (deftest "REQ-21：条数判据在 1000 条边界（> 1000 才触发）"
   (fn []

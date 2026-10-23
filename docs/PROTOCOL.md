@@ -122,7 +122,7 @@ take 2 "abcde"
 
 ```json
 {"protocol":1,"type":"pong"}
-{"protocol":1,"type":"hello","version":"ravel breve 1.0d · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0e · janet 1.42.1"}
 {"protocol":1,"type":"bye"}
 ```
 

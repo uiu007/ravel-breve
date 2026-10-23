@@ -22,6 +22,10 @@
 (def rb/store-kind "ravel-workspace")
 (def rb/store-absent (gensym))
 (def rb/store-log-limit 1000)
+
+# REQ-21 主判据的下限：小工作区（快照 ~150 字节）按纯比例会「每轮 compact」，
+# 使增量日志退化成每轮全量重写；因此日志至少要到 512 字节才按比例判（D-58 / SF-18）。
+(def rb/store-log-floor 512)
 (def rb/store-max-depth 12)
 
 # ---- 能力层取用（核心不含具体实现）-------------------------------------
@@ -346,10 +350,11 @@
     {:log logsz :snap snap :ratio (/ logsz snap)}))
 
 (defn rb/store-compact-needed?
-  "REQ-21：日志 > 快照 0.5 倍（主判据），或日志 > 1000 条，或显式调用。"
+  "REQ-21：日志 > max(0.5 × 快照, 512 字节)（主判据，下限 512 见 D-58），
+   或日志 > 1000 条，或显式调用。"
   [ws]
   (def r (rb/store-log-ratio ws))
-  (or (> (r :ratio) 0.5)
+  (or (> (r :log) (max (* 0.5 (r :snap)) rb/store-log-floor))
       (> (or (ws :seq) 0) rb/store-log-limit)))
 
 (defn rb/store-compact!

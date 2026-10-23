@@ -30,6 +30,7 @@ rb/store.janet
 rb/words/l7.janet
 rb/proto.janet
 rb/words/l9.janet
+rb/line.janet
 rb/cli.janet
 rb/init.janet
 cap/config.janet

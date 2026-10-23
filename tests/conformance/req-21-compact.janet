@@ -29,25 +29,39 @@
     (eval-stack-in e2 (string "load \"" path "\"\npop"))
     (is= [12] (eval-stack-in e2 "z 5"))))
 
-(deftest "REQ-21：① 日志超过快照 0.5 倍 → 自动 compact（主判据）"
+(deftest "REQ-21：① 日志超过 max(0.5 × 快照, 512 字节) → 自动 compact（主判据）"
   (fn []
     (def env (new-ws))
     (def ws (env :rb-ws))
     (def path (p21 "ratio.json"))
+    (run-in env (string "save current \"" path "\""))
+    # 白盒：快照 2500 字节、日志 1260 字节（> 0.5 × 2500，也越过 512 字节下限）
+    (rb/store-file-write (big-str 250) path)
+    (put ws :snap-size 2500)
+    (rb/store-file-write (big-str 126) (string path ".log"))
+    (put ws :seq 1)
+    (is (rb/store-compact-needed? ws) "判据成立")
+    (run-in env "\"x\"")
+    (is= 0 (ws :seq) "自动 compact 后计数归零")
+    (is (< ((rb/store-log-ratio ws) :log) 512) "日志被截断")))
+
+(deftest "REQ-21：小工作区不因比例判据每轮 compact（512 字节下限）"
+  (fn []
+    (def env (new-ws))
+    (def ws (env :rb-ws))
+    (def path (p21 "floor.json"))
     (run-in env (string "pad : [ drop \"" (big-str 20) "\" ]"))
     (run-in env (string "save current \"" path "\""))
     (def snap-size (ws :snap-size))
     (is (> snap-size 0))
-    # 每轮往栈上加一个 200 字节的值：日志涨得比快照快
     (var n 0)
-    (while (and (< n 20) (< (or (ws :seq) 0) 1))
-      (run-in env (string "\"" (big-str 20) "\""))
+    (while (< n 3)
+      (run-in env (string "\"" (big-str 5) "\""))
       (set n (+ n 1)))
-    # 到这一步：要么已经自动 compact（seq 归零、日志很短），要么判据不成立
     (def r (rb/store-log-ratio ws))
-    (is (< (r :ratio) 0.5) "compact 之后比例必须回落到 0.5 以下")
-    (is (< (r :log) snap-size) "日志比快照短")
-    (is (> n 0) "至少跑过一轮")))
+    (is (> ((rb/store-log-ratio ws) :log) 0) "日志在长")
+    (is (< ((rb/store-log-ratio ws) :log) 512) "三轮之后日志仍小于下限")
+    (is= 3 (ws :seq) "因此没有触发 compact（增量日志没有被退化成全量重写）")))
 
 (deftest "REQ-21：② 日志超过 1000 条 → 自动 compact"
   (fn []
@@ -82,11 +96,11 @@
     (def path (p21 "summary.json"))
     (run-in env (string "save current \"" path "\""))
     (put ws :seq 1)
-    (rb/store-file-write (big-str 10) path)
-    (put ws :snap-size 100)
+    (rb/store-file-write (big-str 250) path)                 # 2500 字节
+    (put ws :snap-size 2500)
     (rb/store-file-write "" (string path ".log"))
     (is (not (rb/store-compact-needed? ws)) "空日志 + 少条数 → 不触发")
-    (rb/store-file-write (big-str 6) (string path ".log"))   # 60 > 0.5 * 100
+    (rb/store-file-write (big-str 126) (string path ".log"))  # 1260 > 0.5 * 2500
     (is (rb/store-compact-needed? ws) "① 倍率触发")
     (rb/store-file-write "" (string path ".log"))
     (put ws :seq 1001)

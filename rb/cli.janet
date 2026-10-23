@@ -14,7 +14,7 @@
 # 保留名表**不得**与词表重名（REQ-09：一个名字只有一种词性）——`watch` 是方言词
 # （L9），所以它不在这里。
 
-(def rb/version-string "ravel breve 1.0d · janet 1.42.1")
+(def rb/version-string "ravel breve 1.0e · janet 1.42.1")
 
 # REQ-25：保留的元命令名（无前缀裸词，均不是方言词）
 (def rb/meta-commands
@@ -123,15 +123,18 @@
   [dump? json?]
   (def env (rb/new-env)) # REPL 内栈跨行保留
   (var buf "")
+  (def hist @[])       # 行编辑器的历史（D-57）
   (var running true)
   (var exit 0)
   (while running
-    (def raw (getline (if (empty? buf) "ravel> " "     > ")))
-    # 注意：janet 的 getline 在 EOF 返回空 buffer（不是 nil），且含尾部换行
-    (if (empty? raw)
+    # 行编辑器交给 rb/line.janet（D-57）；nil = EOF（C-d 空行 / stdin 关闭）
+    (def raw (rb/line-read (if (empty? buf) "ravel> " "     > ") hist))
+    (if (nil? raw)
       (set running false)
       (do
         (def line (string/trimr (string raw)))
+        (when (and (empty? buf) (not (empty? line)))
+          (array/push hist line))
         (if (and (empty? buf) (rb/meta-command? line))
           # 元命令只认「单独一行、且没有待续的块」，其余一律当方言代码（REQ-25）
           (let [code (rb/cli-meta line env)]

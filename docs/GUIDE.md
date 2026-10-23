@@ -221,6 +221,73 @@ show                                # → "好的"（真模型说的）
 
 ---
 
+### 1.3 REPL 的键位：Emacs 与 Vim 双模式（D-57）
+
+REPL 的行编辑器只在**真终端**里启用；管道 / 重定向自动退回普通行模式
+（`printf ... | ravel` 的行为一点没变，脚本与测试不受影响）。
+
+缺省是 **Emacs 模式**。按 `Esc` 进 **Vim normal 模式**，再按 `Esc` 回 Emacs——
+「用 Vim 的模式切换思想」只管一件事：切换输入模式。模式在提示符上看得见：
+
+| 模式 | 提示符 | 进入方式 |
+|---|---|---|
+| Emacs | `ravel> ` | 缺省；Vim normal 下再按 `Esc` |
+| Vim normal | `ravel> -- NORMAL -- ` | Emacs 下按 `Esc`；插入模式按 `Esc` |
+| Vim insert | `ravel> -- INSERT -- ` | normal 下 `i` / `a` / `I` / `A` |
+
+**只收最常用的动作**（「如无必要勿增实体」）：
+
+| 动作 | Emacs | Vim |
+|---|---|---|
+| 行首 / 行尾 | `C-a` / `C-e`（`Home` `End`） | `0` / `$` |
+| 左 / 右一字 | `C-b` / `C-f`（`←` `→`） | `h` / `l`（`←` `→`） |
+| 左 / 右一词 | `M-b` / `M-f`（`C-←` `C-→`） | `b` / `w` |
+| 删前一字 / 删光标处 | `Backspace` / `C-d`（`Delete`） | `x`（normal） |
+| 删到行尾 | `C-k` | `D` |
+| 删到行首 | `C-u` | —（用 `0 D`） |
+| 删一个词 | `C-w` | —（用 `b D`） |
+| 整行清空 | `C-a C-k` | `dd` |
+| 撤销一步 | — | `u` |
+| 进插入 | 直接打字 | `i` / `a`（后一字符）/ `I`（行首）/ `A`（行尾） |
+| 历史 | `↑` `↓`（`C-p` `C-n`） | `↑` `↓` |
+| 提交本行 | `Enter` | `Enter`（两种模式都行） |
+| 丢弃本行 | `C-c` | `C-c` |
+| EOF | `C-d`（空行） | `C-d`（空行） |
+
+**不含**：kill ring、补全、多行编辑、Vim 的数字前缀 / 寄存器 / 可视模式 /
+`hjkl` 以外的动作。一行通常就两三个词，够用即可；要更多，走下面的扩展点。
+
+```
+$ ./bin/ravel
+ravel> + 1 2^A^K        # ^A = C-a：清掉重打
+ravel> + 3 4
+7
+ravel> 随便打点什么      # 按 Esc 进 Vim normal，提示符变成 `ravel> -- NORMAL -- `
+                        # 0 dd 清空，i 回到插入，Enter 提交
+```
+
+- 历史只记**提交过的非空行**；翻到中间时打了一半的内容，翻回底部还在。
+- 只在读这一行时把终端切到原始模式；**求值期间回到熟模式**，所以
+  求值时按 `C-c` 是「中断程序」而不是「丢弃本行」。
+- 出错处理简单但不会锁死：行编辑器抛异常 → stderr 一行提示，立刻退回行模式；
+  终端状态在退出（含 `C-c`、异常）时恢复。
+
+扩展点（前端、测试、以后加补全都从这里进）：
+
+| 名字 | 作用 |
+|---|---|
+| `rb/line-reader` | 读一行的唯一入口，`(fn [prompt hist] -> String 或 nil)`；换编辑器/补全器只改这里 |
+| `rb/line-emacs-keys` / `rb/line-vim-normal-keys` / `rb/line-vim-insert-keys` | 键位表（数据）：`(put rb/line-emacs-keys :ctrl-l (fn [st] ...))` 即可加键 |
+| `rb/line-apply-key!` | 把一个键码应用到一个状态表（`rb/line-state`），返回动作 `nil`/`:submit`/`:eof`/`:abort` |
+| `rb/line-edit` 的第三个参数 | 注入键源，单元测试用（不需要终端） |
+| `rb/line-on-error` | 编辑器出错时的提示方式 |
+| `rb/line-tty?` | 当前是否有终端原语（没有就自动走行模式） |
+
+宿主侧原语表是 `(dyn :rb-term)`（`src/main.c` 提供 `tty` / `raw-on` / `raw-off` /
+`read-key`）：方言层取不到它就退回行模式，所以裸 `janet` 跑单元测试也能装载内核。
+
+---
+
 ## 2. 唯一的读法：镜像
 
 一条语句里的 token 会**反转**后执行。`--dump` 把转译产物直接打出来：
@@ -1208,7 +1275,7 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 | L9 前端 | `watch` `subscribe` `unsubscribe` |
 | provider 配置 | `llm` `llm-get` `llm-set` |
 
-完整栈效应见 `ravel-breve-spec-v1.0d.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`。
+完整栈效应见 `ravel-breve-spec-v1.0e.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`（v1.0e 已把 SF-14…SF-35 冻结）。
 
 ---
 

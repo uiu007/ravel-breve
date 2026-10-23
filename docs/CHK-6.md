@@ -18,7 +18,7 @@
 ## 2. 验收
 
 ```
-make test        → 304 单元/符合性 + 94 端到端 + 11 例程 + core-only 全绿
+make test        → 326 单元/符合性 + 94 端到端 + 11 例程 + core-only 全绿
 make test-agent  → 真 NVIDIA 14 / 0
 ```
 

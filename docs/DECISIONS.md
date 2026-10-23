@@ -571,3 +571,67 @@ fact 5                     # 120
   `make test-agent` 里用「坏模型名」这一例覆盖（见 `tests/e2e/agent.sh`）。
 - **验收**：`RB_MODEL=不存在的模型 RB_LLM=nvidia ./bin/ravel -e '…'` → 60 且消息里含
   `404 page not found`。
+
+## D-57 REPL 行编辑器：Emacs 键位 + Vim 模式切换（前端层）
+
+- **需求**：给 `ravel` 的 REPL 加 Emacs 与 Vim 两种编辑键位，用 **Vim 的模式切换**
+  在两者间切换；只收最常用的动作；错误处理简单但**留好 API**。
+- **分层**：键位属于**前端**，不进方言核心——核心词表、转译、协议一律不动。
+  新增 `rb/line.janet`（装载序在 `words/l9` 之后、`cli` 之前），`rb/cli.janet` 的 REPL
+  把 `getline` 换成 `(rb/line-read prompt hist)`。`--serve`、`-e`、脚本路径**不变**。
+- **三种模式**（用 Vim 的模式概念当开关，不引入第二套切换键）：
+  | 模式 | 提示符 | 切换 |
+  |---|---|---|
+  | `:emacs`（缺省） | `ravel> ` | normal 下按 `Esc` |
+  | `:vim-normal` | `ravel> -- NORMAL -- ` | Emacs 下按 `Esc`；insert 下按 `Esc` |
+  | `:vim-insert` | `ravel> -- INSERT -- ` | normal 下 `i`/`a`/`I`/`A` |
+  - 模式必须有**可见**标记：两级模式不给提示就是「按了没反应」。
+  - `Esc` 是唯一开关（不新增 `C-x` 之类第二开关）：Emacs → normal → Emacs 两级往返。
+- **最小集合**（用户：「如无必要勿增实体」）：
+  Emacs：`C-a C-e C-b C-f C-k C-u C-w C-d C-c C-l Tab` + 方向键 + `M-b/M-f`（`C-←/C-→`）。
+  Vim normal：`h l 0 $ w b i a I A x D dd u`；insert：可打印字符 + `Esc` + 编辑键。
+  **不做**：kill ring、补全、多行、数字前缀、寄存器、可视模式、`P`/`p`、`c`/`r`、搜替换。
+- **实现**：不依赖宿主终端库。
+  - `src/main.c` 提供终端原语表 `rb-term`（`tty` / `raw-on` / `raw-off` / `read-key`），
+    `read-key` 在 C 里做原始模式读取 + `ESC` 歧义消解（ESC 后 40ms 无后续字节 = 单按 Esc）
+    + UTF-8 组装 + CSI/SS3 解析（`A/B/C/D/H/F`、`~3`、`;5`/`;3` 修饰 → 按词移动）。
+  - 方言层用**间接层**取它：`(dyn :rb-term)`（同 D-29）。取不到（裸 `janet` 跑单测、
+    非 unix 宿主）就 `rb/line-tty?` = false → 自动走 `getline` 行模式，内核照样装载。
+  - 文本按**码位数组**存（CJK 退格只删一个字），宽度粗算（宽字符 2 列），
+    重绘用 `\r ESC[K <提示符+文本> \r ESC[<列>C`，不做换行/滚动计算。
+- **错误处理**（用户：「简单的就好，保留好 API」）：
+  - 原始模式只在**读这一行**时开，读完立刻 `raw-off`（求值期间是熟模式，
+    所以 `C-c` 在求值时仍是中断程序，不会吞掉）；`atexit` 兜底恢复终端。
+  - `rb/line-read-tty` 用 `try` 包住编辑器：任何异常 → `rb/line-on-error` 一行提示 →
+    立即退回 `getline`；**不会**因为编辑器坏了就不能用 REPL。
+  - 扩展点（都是公开数据/var，不必改 `rb/line.janet`）：
+    | 名字 | 作用 |
+    |---|---|
+    | `rb/line-reader` | 读一行的唯一入口 `(prompt hist) -> String 或 nil` |
+    | `rb/line-emacs-keys` / `rb/line-vim-normal-keys` / `rb/line-vim-insert-keys` | 键位表：`键 -> (fn [st] 动作)` |
+    | `rb/line-apply-key!` | 键码 → 动作（`nil`/`:submit`/`:eof`/`:abort`），写回 `(st :action)` |
+    | `rb/line-edit` 第三参数 | 注入键源（单元测试不需要终端） |
+    | `rb/line-on-error` | 出错提示方式 |
+- **语义细节**：
+  - `C-d` 空行 = EOF；非空 = 删光标处字符（Emacs 习惯）。
+  - `C-c` = 丢弃本行（返回 `nil`，REPL 什么也不做，继续读）。
+  - 历史只记提交过的非空行；翻历史时把「打了一半的内容」存进 `:saved`，翻回底部还原。
+  - Vim `dd` / `u` / `x` / `D` 都基于同一份撤销栈（最多 32 步）。
+  - insert 下 `Esc` 光标左移一格（同 Vim）；`a` 也是「后一字符」。
+- **为什么不改 `getline`**：宿主的 `getline` 是行缓冲的，没有按键事件；
+  要「边打边改」只能自己进原始模式。同时保留 `getline` 作为无终端时的实现。
+- **验收**：`tests/unit/line.janet`（20 例，注入键源，覆盖三种模式、历史、CJK、
+  撤销、扩展点、无终端退回）；端到端仍由 `tests/e2e/cli.sh` 的管道用例覆盖；
+  pty 手工验收见 `docs/CHK-7.md`。
+
+## D-58 compact 主判据加下限 512 字节（v1.0e 的 SF-18 处置）
+
+- **问题**：REQ-21 的主判据是「日志 > 快照的 0.5 倍」。小工作区（十来个词）快照 ~300 字节、
+  一行日志 ~120 字节 → 大约两轮就超过 0.5 倍，于是**每轮都 compact**；
+  增量日志退化成「每轮全量重写」，与 REQ-20 的意图正好相反。
+- **决定**：`rb/store-compact-needed?` 改为
+  `日志 > max(0.5 × 快照, 512 字节)`，另两个条件（> 1000 条 / 显式 `compact`）不变。
+  - 512 是常量 `rb/store-log-floor`（不是散落的魔数），并写进规范（v1.0e 的 REQ-21）。
+  - 判据仍然**可见**：`rb/store-log-ratio` 照旧给出 `:log` / `:snap` / `:ratio`，只是触发多一个下限。
+- **验收**：`tests/unit/store.janet`（0.5 边界 + 512 下限）、
+  `tests/conformance/req-21-compact.janet`（判据接线 + 小工作区三轮不 compact）。

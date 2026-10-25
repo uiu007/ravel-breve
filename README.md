@@ -2,12 +2,22 @@
 
 **波兰（前缀）式书写、类 Forth 栈机执行**的 **agent 会话编排方言**，宿主为 Janet 1.42.x（amalgamated，静态嵌入）。
 
+- **第一次用：读 `QUICKSTART.md`**（10 分钟，只讲跑起来要的那点东西）；完整手册 `docs/GUIDE.md`
 - 命令：`ravel`，脚本扩展名 `.breve`，提示符 `ravel> `
 - 规格（现行）：`ravel-breve-spec-v1.0k.md`（配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
   `ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0j.md` 保留为历史（不删改）
 - 许可：**MIT**（见 `LICENSE`）；嵌入的 Janet 1.42.1 亦为 MIT（见 `vendor/janet`）
 - 规格反馈（缺陷/留白）：`docs/SPEC-FEEDBACK.md`
 - 开发计划与检查点：`PLAN.md`
+
+## 快速上手
+
+```sh
+make && ./bin/ravel -e '+ 1 2'     # 3
+```
+
+只需记住「**词在前，最左的实参是第一个操作数**」这一条，就能写脚本了——
+十分钟版在 **`QUICKSTART.md`**，下面几节是分主题速览，完整手册在 `docs/GUIDE.md`。
 
 ## 构建与验收
 

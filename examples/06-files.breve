@@ -1,9 +1,12 @@
 # 06 文件读写与工作区快照
-write "第一行\n第二行\n" "/tmp/ravel-demo.txt"
-lines read "/tmp/ravel-demo.txt"
+#
+# 注意：文件沙箱（D-60）的根 = 进程当前目录，所以例程写到 build/tmp/ 里；
+# 要写仓库外，用 RB_SANDBOX=none（或 RB_SANDBOX=<根>）显式放开。
+write "第一行\n第二行\n" "build/tmp/ravel-demo.txt"
+lines read "build/tmp/ravel-demo.txt"
 show
-len read "/tmp/ravel-demo.txt"
+len read "build/tmp/ravel-demo.txt"
 show
-"/tmp/ravel-demo.rbx"
+"build/tmp/ravel-demo.rbx"
 save current
 log "快照已写"

@@ -1,0 +1,23 @@
+# 13 默认工具包（D-61 / REQ-54）
+#
+# 离线跑法：RB_LLM=mock ./bin/ravel examples/13-tools.breve
+# 沙箱根 = 当前目录（D-60），所以这里写 build/tmp/ 里的文件。
+
+# 1) 先把工作目录里的 .breve 例程列出来（glob）
+invoke "glob" H{ "pattern" "examples/*.breve" }
+show
+
+# 2) 写一个临时文件，再用 grep 找一行（grep 是字面量）
+write "alpha\nbeta\ngamma\n" "build/tmp/ravel-13.txt"
+invoke "grep" H{ "pattern" "beta" "path" "build/tmp/ravel-13.txt" }
+show
+
+# 3) 把它改掉（edit 是字面量替换，找不到 old 会报 60）
+invoke "edit" H{ "path" "build/tmp/ravel-13.txt" "old" "beta" "new" "delta" }
+show
+read "build/tmp/ravel-13.txt"
+show
+
+# 4) shell 默认关闭：这里不调用；要试就 RB_ALLOW_SHELL=1 后
+#    invoke "shell" H{ "cmd" "wc -l build/tmp/ravel-13.txt" }
+"工具包就绪"

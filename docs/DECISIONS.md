@@ -671,3 +671,42 @@ fact 5                     # 120
   `tests/conformance/req-52-modes.janet`（词层往返、ptc 一轮只一次工具调用、
   程序内 `invoke` 串多工具、失败 60、标记可关）；`tests/e2e/cli.sh` 的 watch/session
   期望同步带上标记。
+
+## D-60 文件沙箱：根 = 当前目录，越界写 41 / 读 40（v1.0g 的 REQ-53）
+
+- **问题**：能力层 `:fs/*` 是任意路径；模型（或一段 PTC 程序）一句话就能把内容写到
+  仓库外、或把 `~/.ssh/id_rsa` 读进会话。REQ-37 只规定了「能力可剔除」，没规定边界。
+- **决定**：`cap/fs.janet` 的五个能力入口统一先过 `cap/fs-check`：
+  - 根 = `RB_SANDBOX`（缺省 = `os/cwd`）；`RB_SANDBOX=none|*` 关闭（脚本要跨目录时显式开）。
+  - **规范化之后再判**：存在 → `os/realpath`（解符号链接）；不存在 → 父目录 `realpath` + 基名。
+    因此 `sub/../../etc/x` 也拦得住（测试里就钉了这一条）。
+  - 越界写 → 能力抛错，`rb/store-file-write` 归 **41**；越界读 → `cap/fs-read` 返回 nil，
+    `read` 归 **40**。**读不另造一个错误码**：读的契约本来就是「读不到」。
+- **为什么不放在词里**：`write`/`save`/`compact` 全都经能力层（REQ-37），
+  边界只有一处才守得住；`--core-only` 时本来就没有文件能力，边界自然不存在。
+- **副作用（已改）**：`tests/e2e/cli.sh`、`examples/06-files.breve`、`docs/GUIDE.md`
+  原来写 `/tmp/…`，现在一律写 `build/tmp/…`（仓库内 = 沙箱根内）。
+- **验收**：`tests/unit/fs-sandbox.janet`（根内外、`..` 绕路、换根、`none`、`size` 也守门）、
+  端到端「根外写 41 / 根外读 40 / 根内仍可写」。
+
+## D-61 默认工具包（v1.0g 的 REQ-54）
+
+- **问题**：agent 只有「聊」的能力；要让它改文件、搜内容、找文件，用户得自己写 `deftool`
+  ——而这些恰恰是最常用的四个动作。
+- **决定**：能力层 `cap/tools.janet` 注册 `edit` / `grep` / `glob` / `shell`，并注册
+  `:tools/install`；`rb/ws-new` 建工作区时若该能力在场就装进工具表。
+  - **不进核心词表**（附录 D 不变）：它们是**工具表项**，`invoke` 调用，模型自决调用走
+    既有 `@Toolcall` 默认钩子（REQ-48）。`--core-only` 时工具表为空。
+  - **`edit` 是字面量替换**（不是正则）：一处没找到 → `60`（模型通常把 old 抄错了）。
+  - **`grep` / `glob` 是字面量/通配**：`*` `?` 段内、`**` 任意层；各限 200 条（防炸栈）。
+  - **`shell` 默认关闭**：`RB_ALLOW_SHELL=1` 才跑。一句 `sh -c` 等于绕过 D-60，
+    所以它必须是显式选择；未开 → `60`。
+  - **输出捕获**：janet 1.42 的 `os/execute :p` 只是「查 PATH」，stdio 直接接本进程；
+    要拿到 stdout 只能自己 `os/spawn` + 重定向到临时文件（`os/tmpname` 也不存在，用 TMPDIR/pid/序号）。
+- **与模式（D-59）的关系**：工作区新增 `:mode-tools`（当前模式装了哪些工具）。
+  切模式时**只撤这一批**，再装新模式声明的那批——用户自己 `deftool` 的工具（比如 PTC 程序里
+  要 `invoke` 的）不受影响；`ptc` 仍然只留 `eval`。
+  预置 `default` 模式的 `:tools` = 能力层的同一批函数对象，所以 REQ-52 的 `deep=` 往返仍成立。
+- **验收**：`tests/unit/cap-tools.janet`（四个工具 + 沙箱守门 + shell 开关）、
+  `tests/conformance/req-47-51-capabilities.janet`（模型发起 `edit` → 文件真被改 + 结果回会话）、
+  端到端沙箱三条、`core-only` 仍通过（工具表为空）。

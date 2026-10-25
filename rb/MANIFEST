@@ -42,3 +42,4 @@ cap/http.janet
 cap/mock.janet
 cap/nvidia.janet
 cap/llm.janet
+cap/tools.janet

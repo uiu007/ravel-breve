@@ -861,17 +861,23 @@ JSON 能力属于能力层（`cap/json`）：核心不含 JSON 解析器，`--co
 | `load` | `Path -- Workspace` | 载入快照 + 重放日志 |
 | `compact` | `Workspace --` | 写新快照、清空日志 |
 
+**文件沙箱**（D-60）：所有文件读写都先过一道规范化检查，根 = 进程当前目录
+（或用 `RB_SANDBOX=<路径>` 指定，`RB_SANDBOX=none` 关闭）。所以下面的例程写 `build/tmp/`：
+越界**写** → `41`，越界**读** → `40`（读的契约本来就是「失败 = nil」，不给两条失败路径）。
+
 ```
-$ ./bin/ravel -e 'write "第一行\n第二行\n" "/tmp/ravel-demo.txt"
-lines read "/tmp/ravel-demo.txt"'
+$ ./bin/ravel -e 'write "第一行\n第二行\n" "build/tmp/ravel-demo.txt"
+lines read "build/tmp/ravel-demo.txt"'
 @["第一行" "第二行" ""]
 
-$ ./bin/ravel -e 'read "/tmp/ravel-demo.txt"
+$ ./bin/ravel -e 'read "build/tmp/ravel-demo.txt"
 len'
 20
 
-$ ./bin/ravel -e 'read "/nope"'
-ravel: 文件不存在或无权限：/nope     # 40
+$ ./bin/ravel -e 'read "/etc/hostname"'
+ravel: 文件不存在或无权限：/etc/hostname     # 40（沙箱根外，读不到）
+$ ./bin/ravel -e 'write "x" "/tmp/ravel-demo.txt"'
+ravel: 写入失败：/tmp/ravel-demo.txt（沙箱拒绝（根 = …）：/tmp/ravel-demo.txt；…）   # 41
 ```
 
 ### 11.1 快照：注意参数序
@@ -879,7 +885,7 @@ ravel: 文件不存在或无权限：/nope     # 40
 `save` 弹的是「先工作区、后路径」，所以**路径要先入栈、工作区在栈顶**：
 
 ```
-"/tmp/ravel-demo.rbx"
+"build/tmp/ravel-demo.rbx"
 save current
 ```
 
@@ -1150,7 +1156,7 @@ map [ Role ]'
 
 ---
 
-## 14.5 处理流程：模式 ⇄ 钩子（PTC）
+### 14.5 处理流程：模式 ⇄ 钩子（PTC）
 
 「一轮请求怎么被处理」在这里是**一份数据**（模式），不是隐式的实现细节。
 模式和**工作区现状**可以来回转换：`mode` 装进去，`mode-of` 取出来。
@@ -1292,6 +1298,50 @@ mode-name'
 这份表可以存起来（`to-json` / 写文件），以后 `mode` 装回去——钩子、开关、提示、工具一起回来。
 
 > 注意：`mode` 是**整体替换**钩子表，不是追加。想在某个模式上加观察者，先 `mode` 再 `@on`。
+
+---
+
+### 14.6 默认工具包（`edit` / `grep` / `glob` / `shell`）
+
+能力层（`cap/tools.janet`）建工作区时就装好四个工具，所以 `invoke` 直接能用，
+模型自决调用走的也是同一批（REQ-48 的默认 `@Toolcall` 钩子）：
+
+```
+invoke "glob" H{ "pattern" "src/*.c" }
+```
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'invoke "glob" H{ "pattern" "src/*.c" }'
+"src/main.c"
+```
+
+| 工具 | 参数 | 结果 |
+|---|---|---|
+| `edit` | `{ path, old, new }` | 把 `old` 的所有出现换成 `new`（**字面量**）；一处没找到 → `60` |
+| `grep` | `{ pattern, path? }` | 逐行 `path:行号: 文本`（字面量，最多 200 条）|
+| `glob` | `{ pattern, dir? }` | `*` / `?` 段内、`**` 任意层；一行一个路径（最多 200 条）|
+| `shell` | `{ cmd }` | `sh -c` 的 stdout；非零退出附 `[退出码 N]`；**默认关闭** |
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'invoke "grep" H{ "pattern" "beta" "path" "build/tmp/g.txt" }'
+"build/tmp/g.txt:2: beta"
+$ RB_LLM=mock ./bin/ravel -e 'invoke "edit" H{ "path" "build/tmp/g.txt" "old" "beta" "new" "gamma" }'
+"已改 1 处：build/tmp/g.txt"
+```
+
+- 三个文件工具都守 **D-60 的沙箱**（根 = 当前目录）：越界 → `60`（工具本体失败）。
+- `grep` / `glob` 是**字面量/通配**，不是正则：`edit` 的 `old` 抄错一个字就会报「找不到」。
+- `shell` 默认关闭，要显式开：
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'invoke "shell" H{ "cmd" "ls src" }'
+ravel: 工具失败：shell：shell 默认关闭：需要 RB_ALLOW_SHELL=1（…）    # 60
+$ RB_ALLOW_SHELL=1 RB_LLM=mock ./bin/ravel -e 'invoke "shell" H{ "cmd" "ls src" }'
+"main.c\n"
+```
+
+- 它们**不是方言词**：在脚本里写 `edit` 是 20（未知的词），要么 `invoke`，要么让模型调用。
+- 切模式（§14.5）时这些工具会跟着当前模式走；你自己 `deftool` 的工具不受影响。
 
 ---
 

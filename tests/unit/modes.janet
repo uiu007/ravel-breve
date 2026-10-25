@@ -136,7 +136,8 @@
     (def env (new-ws))
     (is= "default" (eval-top-in env "mode-of\nmode-name"))
     (is= nil (eval-top-in env "mode-of\nmode-prompt") "default 无提示")
-    (is= (tup []) (tup (eval-top-in env "mode-of\nmode-tools")))
+    # D-61：缺省工作区就有能力层装好的四个工具
+    (is= (tup ["edit" "glob" "grep" "shell"]) (tup (eval-top-in env "mode-of\nmode-tools")))
     (is= 0 (run-in-exit env "mode \"ptc\""))
     (is= "ptc" (eval-top-in env "mode-of\nmode-name"))
     (is (string/find "PTC" (eval-top-in env "mode-of\nmode-prompt")))

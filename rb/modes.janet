@@ -96,6 +96,13 @@
       (string top)))
   nil)
 
+(defn rb/cap-default-tools
+  "能力层提供的默认工具表（`--core-only` 时没有能力 → 空表）。
+   与 `ws-new` 装的是同一批函数对象，故模式 round-trip 可用 `deep=` 比。"
+  []
+  (def f (rb/cap-get :tools/defaults))
+  (if f (f) @{}))
+
 (defn rb/mode-presets
   "预制模式表：名字 → 模式。`default` 的钩子对象与 `ws-new` 完全同一批。"
   []
@@ -104,7 +111,9 @@
       "default"
       "缺省：收尾钩子把流合并进会话，工具调用自动执行（REQ-18 / REQ-48）"
       nil
-      (rb/ws-default-hooks))
+      (rb/ws-default-hooks)
+      nil
+      (rb/cap-default-tools))
 
     "ptc"
     (rb/mode-new
@@ -148,8 +157,10 @@
   (def fl (ws :flags))
   (eachp [k v] (m :flags) (put fl k v))
   (def tools (ws :tools))
-  (each n (rb/mode-preset-tools) (put tools n nil))
+  # 只撤「上一个模式装的」那批：用户自己 deftool 的工具（如 PTC 程序里要 invoke 的）留着
+  (each n (ws :mode-tools) (put tools n nil))
   (eachp [n d] (m :tools) (put tools n d))
+  (put ws :mode-tools (tuple ;(sort (keys (m :tools)))))
   m)
 
 (defn rb/mode-capture

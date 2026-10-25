@@ -69,7 +69,8 @@
     (def env (new-ws))
     (is= 42 (eval-top-in env (string "deftool \"add2\" \"加 2\" [ at \"a\"\n+ 2 ]\n"
                                      "invoke \"add2\" H{ \"a\" 40 }")))
-    (is= 1 (length (keys ((env :rb-ws) :tools))) "工作区里有一张工具表")))
+    # D-61：能力层默认装了四个文件/进程工具，所以这里是「deftool 的那个必须在」
+    (is (not (nil? (get ((env :rb-ws) :tools) "add2"))) "工作区里有一张工具表")))
 
 (deftest "REQ-48: 未注册的工具报 60"
   (fn []
@@ -113,20 +114,20 @@
     (is= "call_mock" ((ms 2) :tool_call_id) "tool 消息回填 tool_call_id")
     (is (not (nil? ((ms 1) :tool_calls))) "assistant 消息带 tool_calls")))
 
-(deftest "REQ-48: 工具表进 provider 请求（tools 字段），空表不带"
+(deftest "REQ-48: 工具表进 provider 请求（tools 字段）"
   (fn []
+    # 空工具表不带 tools 的情形由 core-only 覆盖（能力层默认会装 4 个工具，D-61）；
+    # 这里验「表里有的都进请求」，且名字/描述照抄。
     (def env (new-ws))
     (var seen nil)
     (with-chat (fn [messages opts] (set seen (opts :tools)) (chat-of-text "x"))
-               (fn [] (run-in env "agent \"c\" { }\nsend say \"问\"")))
-    (is (nil? seen) "没有工具时不带 tools")
-    (def env2 (new-ws))
-    (with-chat (fn [messages opts] (set seen (opts :tools)) (chat-of-text "x"))
-               (fn [] (run-in env2 (string "deftool \"t\" \"描述\" [ 1 ]\n"
+               (fn [] (run-in env (string "deftool \"t\" \"描述\" [ 1 ]\n"
                                            "agent \"c\" { }\nsend say \"问\""))))
-    (is= 1 (length seen))
-    (is= "t" (((seen 0) :function) :name))
-    (is= "描述" (((seen 0) :function) :description))))
+    (def names (map |(($ :function) :name) seen))
+    (is (not (nil? (find |(= "t" $) names))) "deftool 的工具进请求")
+    (each d seen
+      (when (= "t" ((d :function) :name))
+        (is= "描述" ((d :function) :description))))))
 
 (deftest "REQ-48: @off @Toolcall 后工具不执行，流停在待外部动作（本轮未完成）"
   (fn []
@@ -256,3 +257,21 @@
                         (fn [] (rb/raise (rb/exit-table :orchestration-base) "总是失败")))
                       (fn [] (run-in env "send say \"问\""))))
     (is= 60 (if (r :ok) 0 (rb/error-code (r :error))))))
+
+(deftest "REQ-48: 默认工具（D-61）经模型工具循环改文件"
+  (fn []
+    (def env (new-ws))
+    (def dir (do (protect (os/mkdir "build/tmp")) "build/tmp"))
+    (def p (string dir "/req48-default-tool.txt"))
+    (spit p "旧内容")
+    (os/setenv "RB_MOCK_TOOL"
+               (string "edit:{\"path\":\"" p "\",\"old\":\"旧\",\"new\":\"新\"}"))
+    (def r (run-in env (string "agent \"c\" { }\n"
+                               "send say \"把文件里的旧改成新\"\n"
+                               "drain")))
+    (os/setenv "RB_MOCK_TOOL" nil)
+    (is (r :ok) (if (r :ok) "" (rb/error-msg (r :error))))
+    (is= "新内容" (string (slurp p)) "模型发起的 edit 真的改了文件")
+    (def a (last (ws-agents env)))
+    (is (string/find "已改 1 处" (((a :session) 2) :content)) "工具结果回到会话")
+    (protect (os/rm p))))

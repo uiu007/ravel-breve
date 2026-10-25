@@ -7,6 +7,7 @@ export RB_LLM="${RB_LLM:-mock}"          # 端到端测试一律离线（M3）
 export RB_MOCK_REPLY="${RB_MOCK_REPLY:-abcdefgh}"
 pass=0
 fail=0
+mkdir -p build/tmp                       # D-60：沙箱根 = 当前目录，写到仓库内才放行
 
 check() { # check <说明> <期望> <实际>
   if [ "$2" = "$3" ]; then
@@ -199,7 +200,7 @@ check "渲染：保留 UTF-8（D-32）" '"你好"' "$(cat /tmp/rb-e2e-out)"
 check_rc "流：未知事件名 → 20" 20 $RAVEL -e '@on @Nope [ 1 ]'
 
 echo "-- M4：持久化与工作区（REQ-20 / REQ-21）"
-W=/tmp/rb-e2e-ws.json
+W=build/tmp/e2e-ws.json
 rm -f "$W" "$W.log"
 check_rc "工作区：跨进程保存" 0 $RAVEL -e "x : [ * 2 ]
 save current \"$W\""
@@ -215,19 +216,23 @@ save current \"$W\"
 y : [ + 1 ]
 compact current"
 check "工作区：compact 后日志清空" "0" "$(wc -c < "$W.log" | tr -d ' ')"
-check_rc "IO：write 写文件" 0 $RAVEL -e "write \"hi\" \"/tmp/rb-e2e.txt\""
-check "IO：write 后内容就位" "hi" "$(cat /tmp/rb-e2e.txt)"
-check_rc "IO：read 读回" 0 $RAVEL -e "read \"/tmp/rb-e2e.txt\""
+check_rc "IO：write 写文件" 0 $RAVEL -e "write \"hi\" \"build/tmp/e2e-io.txt\""
+check "IO：write 后内容就位" "hi" "$(cat build/tmp/e2e-io.txt)"
+check_rc "IO：read 读回" 0 $RAVEL -e "read \"build/tmp/e2e-io.txt\""
 check "IO：read 渲染" '"hi"' "$(cat /tmp/rb-e2e-out)"
-check_rc "IO：读不存在 → 40" 40 $RAVEL -e "read \"/tmp/rb-e2e-nope.txt\""
-check_rc "IO：载入不存在 → 40" 40 $RAVEL -e "load \"/tmp/rb-e2e-nope.json\""
+check_rc "IO：读不存在 → 40" 40 $RAVEL -e "read \"build/tmp/e2e-nope.txt\""
+check_rc "IO：载入不存在 → 40" 40 $RAVEL -e "load \"build/tmp/e2e-nope.json\""
 check_rc "IO：写不进去 → 41" 41 $RAVEL -e "write \"x\" \"/proc/1/__nope/x\""
 # 编排级 60 需要「核心无能力层」的构建：用只含核心的 bundle 跑同一条源码
 check_rc "编排级：无能力层时 send → 60" 60 \
       build/janet -e '(each f (parse-all (slurp "build/core-only/rb-bundle.janet")) (eval f (curenv)))
                       (def r (rb/run-source "send say \"hi\" agent \"c\" { }" "t"))
                       (os/exit (if (r :ok) 0 (rb/error-code (r :error))))'
-check_rc "工作区：save 非工作区 → 31" 31 $RAVEL -e "save H{ } \"/tmp/rb-e2e-x.json\""
+check_rc "工作区：save 非工作区 → 31" 31 $RAVEL -e "save H{ } \"build/tmp/e2e-x.json\""
+# D-60：能力层文件沙箱（根 = 当前目录；RB_SANDBOX=none 才放开）
+check_rc "沙箱：根外写 → 41" 41 $RAVEL -e 'write "x" "/tmp/rb-e2e-denied.txt"'
+check_rc "沙箱：根外读 → 40" 40 $RAVEL -e 'read "/etc/hostname"'
+check_rc "沙箱：关卡后仍能写根内" 0 $RAVEL -e 'write "x" "build/tmp/e2e-sandbox.txt"' 
 
 # D-55：失败的一轮没有栈效果——报错后能继续，且栈上没有半截操作数
 check_rc "REPL：栈下溢后仍能继续（D-55）" 0 bash -c "printf '+ 1\ndepth\nquit\n' | $RAVEL"
@@ -249,7 +254,7 @@ check "配置：工作区覆盖环境变量" '"nvidia"' "$(cat /tmp/rb-e2e-out)"
 check_rc "配置：拼错配置项 → 31" 31 $RAVEL -e 'llm-set "x" "provier"'
 check_rc "配置：密钥不是配置项 → 60" 60 $RAVEL -e 'llm-set "sk-x" "key"'
 # 配置随快照走：同一份 .rbx 换进程仍然有效
-CFGW=/tmp/rb-e2e-cfg.json
+CFGW=build/tmp/e2e-cfg.json
 check_rc "配置：随快照保存" 0 $RAVEL -e "llm-set \"nvidia\" \"provider\"
 save current \"$CFGW\""
 check_rc "配置：换进程载入仍生效" 0 $RAVEL -e "load \"$CFGW\"

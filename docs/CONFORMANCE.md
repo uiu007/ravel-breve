@@ -1,12 +1,13 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0f.md`**（处理流程层）；
+依据规格：**`ravel-breve-spec-v1.0g.md`**（沙箱与默认工具）；
 `ravel-breve-spec-v1.0c.md` / `ravel-breve-spec-v1.0b.md` 为历史原文。
 状态：**M6**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
 > v1.0d 新增 **REQ-47…REQ-51**（见文末）；**v1.0e 不新增 REQ**（只把 SF-14…SF-35 冻结，见其附录 I）；
-> **v1.0f 新增 REQ-52**（处理流程 / 模式，见其 §4.13 与附录 J）。
+> **v1.0f 新增 REQ-52**（处理流程 / 模式，见其 §4.13 与附录 J）；
+> **v1.0g 新增 REQ-53 / REQ-54**（文件沙箱、默认工具包，见其 §4.14 与附录 L）。
 
 跑法：`make test`（单元 + 符合性 + 端到端 + 附录 D）。
 
@@ -271,3 +272,13 @@ REPL 与 `--serve` 报错后可继续（U:config、e2e:cli）。
 
 决策记录：D-45（工具循环）· D-46（`:tool` 冻结）· D-47（`onfail` / `->` / `subscribe`）·
 D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
+
+## v1.0f / v1.0g 新增 REQ（52–54）
+
+| REQ | 内容 | 状态 | 测试 |
+|---|---|---|---|
+| REQ-52 | 处理流程（模式）：`mode` / `mode-of` 互逆；开关默认全开且不进请求；预制 `ptc`（只有 `eval`） | ✅ | `unit/modes.janet`、`conformance/req-52-modes.janet`、`e2e/cli.sh`（标记）、`examples/12-ptc.breve` |
+| REQ-53 | 文件沙箱：根 = 当前目录（`RB_SANDBOX` 换/关），规范化后判定；越界写 41、读 40 | ✅ | `unit/fs-sandbox.janet`、`e2e/cli.sh`（沙箱三条） |
+| REQ-54 | 默认工具包：`edit` / `grep` / `glob` / `shell`（能力层 `:tools/install`；`shell` 需 `RB_ALLOW_SHELL=1`）| ✅ | `unit/cap-tools.janet`、`conformance/req-47-51-capabilities.janet`（模型发起 edit）、`e2e/cli.sh` |
+
+决策记录：D-59（模式 ⇄ 钩子）· D-60（文件沙箱）· D-61（默认工具包与 `:mode-tools`）。

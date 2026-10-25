@@ -63,7 +63,7 @@
   "新建一个工作区状态（REQ-30：字典 + 钩子 + 活 agent + 本轮 stream 列表）。
    栈不在这里——它是 env 的 `:rb-stack`（同一工作区的「变量」那半）。"
   []
-  @{:dict @{}
+  (def w @{:dict @{}
     :hooks (rb/ws-default-hooks)
     :mode "default"      # D-59：当前处理流程（模式）
     :mode-prompt nil     # 该模式要求注入的 system 提示（nil = 不注入）
@@ -76,7 +76,16 @@
     :watch @[]     # L9 被 watch 的视图流（REQ-28）
     :path nil      # 持久化目标（nil = 不落盘；REQ-20）
     :seq 0         # 已写入日志的记录数
-    :snap-size 0})  # 快照文件字节数（REQ-21 的 0.5 倍判据）
+    :snap-size 0    # 快照文件字节数（REQ-21 的 0.5 倍判据）
+    :mode-tools @[]}) # 当前模式装了哪些工具（D-61）
+  # D-61：能力层若提供默认工具包，就装进新工作区（--core-only 时这里没有能力，工具表为空）。
+  # `:mode-tools` 记住「当前模式装了哪些工具」：切模式时先撤这批，再装新模式声明的那批，
+  # 用户自己 `deftool` 的（不在这个名单里）不受影响。
+  (def inst (rb/cap-get :tools/install))
+  (when inst
+    (inst (w :tools))
+    (put w :mode-tools (tuple ;(sort (keys (w :tools))))))
+  w)
 
 (var rb/ws-default nil)
 

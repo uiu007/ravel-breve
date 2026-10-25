@@ -114,3 +114,70 @@ D-70 的两条几何/粘贴行为已进单元测试（不需要终端）：
 其余 SF（14、15、16、17、18、19、20、21、22、23、24、25、26、27、28、29、30、31）
 按各自条目的「建议」写进 v1.0e，实现侧差异逐条见 `docs/SPEC-FEEDBACK.md` 的
 「实现现状」与 `docs/DECISIONS.md`。
+
+---
+
+## 5. v1.0m 追记：模式的复刻（D-72 / REQ-65 / REQ-66）
+
+依据规格：`ravel-breve-spec-v1.0m.md`（现行；v1.0b…v1.0l 保留为历史原文）。
+
+**做了什么。** 读 DeepSeek harness 的四个预置（`packages/bundle/web-app/presets/*.patch.yml`）
+与 `plan-mode` 的说明，把「模式」这件事复刻了一遍；顺带修掉 v1.0f 的一处语义抄错
+（`ptc` 把「只公示一个工具」实现成了「只注册一个工具」）。
+
+| 编号 | 内容 | 位置 |
+|---|---|---|
+| D-72 | 注册 ≠ 公示（`:wire` 呈现层）+ 五预设 + 正交 plan + `read` / `write` | `rb/modes.janet`、`rb/tools.janet`、`rb/events.janet`、`cap/tools.janet` |
+| REQ-65 | 模式可声明 `:wire`；四个 dsh 预置的复刻；提示模板 | `ravel-breve-spec-v1.0m.md` §4.13 |
+| REQ-66 | `enter-plan` / `exit-plan` / `exit_plan_mode`：plan 正交于预置 | 同上 |
+| SF-38 | 「照抄名字」与「照抄语义」的区别；不复制清单与理由 | `docs/SPEC-FEEDBACK.md` |
+
+### 5.1 人工验收（复制粘贴即可）
+
+```sh
+make all
+
+# ① 五个模式
+./bin/ravel --modes                       # cordis / default / minimal / ptc / standard
+./bin/ravel -e 'modes'                    # ("cordis" "default" "minimal" "ptc" "standard")
+
+# ② 注册 ≠ 公示：ptc 的程序里能调全部工具，模型只看见 eval
+./bin/ravel -e 'mode "ptc"
+mode-of
+mode-tools'                               # 七个（含 eval）
+./bin/ravel -e 'mode "ptc"
+invoke "eval" H{ "src" "invoke \"glob\" H{ \"pattern\" \"rb/MANIFEST\" }" }'
+                                          # "rb/MANIFEST"（v1.0l 这里是「未注册的工具」）
+
+# ③ plan 正交：不换模式，只加提示 + 一个工具
+./bin/ravel -e 'enter-plan
+flag "plan"'                              # true
+./bin/ravel -e 'enter-plan
+invoke "exit_plan_mode" H{ "plan" "# 计划" }
+flag "plan"'                              # "计划已提交…" 然后 false
+
+# ④ 两个新工具
+./bin/ravel -e 'invoke "read" H{ "path" "README.md" "limit" 3 }'
+./bin/ravel -e 'invoke "write" H{ "path" "build/tmp/x.txt" "content" "z" }'   # 1
+```
+
+| # | 手工动作 | 期望 |
+|---|---|---|
+| 1 | `./bin/ravel --modes` | 五个名字 + 每个的工具与一句说明；`ptc` 那行说「wire 上只有 eval」|
+| 2 | `mode "minimal"` 后 `mode-of` / `mode-tools` | 工具只有 `("shell")`|
+| 3 | 同上后 `invoke "write" H{…}` | `60`（它没装这个工具）|
+| 4 | `mode "ptc"` 后 `invoke "eval" H{ "src" "invoke \"grep\" …" }` | 真结果，不是「未注册的工具」|
+| 5 | `enter-plan` → `mode-of` | 模式名**没变**（还是 `ptc` / `default`），只有 `flags` 的 `plan` 变 `true`|
+| 6 | 同上后 `flag-set false "plan"` | 等价于 `exit-plan`（手动出口）|
+| 7 | `invoke "exit_plan_mode" H{ "plan" 1 }` | `31`（计划必须是字符串）|
+| 8 | 不在 plan 时 `invoke "exit_plan_mode" H{ "plan" "# x" }` | `60`（编排级）|
+| 9 | `mode "nope"` | `20`（未知模式）|
+| 10 | `make test` / `make test-examples` / `make test-core-only` | 全绿（417 + 144 + 17 + core-only）|
+
+### 5.2 边界（本轮**没有**做，需用户裁决）
+
+- **`read_image`**（dsh 有）：本方言的消息内容是字符串，没有附件概念；要做得先给 `Utter` 加内容部件，
+  那是类型系统的改动。
+- **`fs-observation-policy`**（"先读后改"的强制）：本仓把它留在**提示**里（`standard` 人格会要求先读），
+  不做硬约束——硬约束需要一个 per-agent 的"已读文件"集合，那是新状态。
+- **多路径预设搜索**：D-71 明确不做，本版不变。

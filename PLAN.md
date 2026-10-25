@@ -269,7 +269,7 @@ M6 的内容按 v1.0d 收束为「agent 的基本能力」：REQ-47…REQ-51（�
 
 ---
 
-## 7. 阶段进度（追记，截至 v1.0l）
+## 7. 阶段进度（追记，截至 v1.0m）
 
 | 里程碑 | 内容（对应规格） | 状态 |
 |---|---|---|
@@ -285,6 +285,7 @@ M6 的内容按 v1.0d 收束为「agent 的基本能力」：REQ-47…REQ-51（�
 | M10 | 插件 ABI（`plug`/`plugins`/`unplug`）+ 插件编写 skills + MIT（REQ-60/61，v1.0j） | ✅ |
 | M11 | provider 配置预设：`llm-import`/`llm-export` + 启动装载（`--preset`/`RB_PRESET`/`RB_CONFIG`）+ `tools/oc-setup.sh`（REQ-62/63，v1.0k） | ✅ tag `m11` |
 | M12 | 预制的可发现性：`--presets` / `--modes` 两个只读查询开关 + 报错自带可用名字 + REPL 长行重绘与括号粘贴（REQ-64 / D-70，v1.0l） | ✅ tag `m12` |
+| M14 | 模式的复刻：dsh 四个预置（`standard` / `ptc` / `minimal` / `cordis`）+ 注册与公示分离（`:wire`）+ 正交 plan（`enter-plan` / `exit-plan` / `exit_plan_mode`）+ `read` / `write` 两个文件工具（REQ-65/66 / D-72，v1.0m） | ✅ tag `m14` |
 
 > 里程碑之后的每一轮都保持三条不变量：**规格先行**（新 REQ 进新版 spec 文件，旧版不删改）、
 > **每条 REQ 有可执行验收**（`docs/CONFORMANCE.md`）、**测试 hermetic**（`RB_LLM=mock`）——

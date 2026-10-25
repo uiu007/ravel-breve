@@ -125,6 +125,8 @@
     "mode-tools" "rb/mode-tools"
     "flag" "rb/flag"
     "flag-set" "rb/flag-set"
+    "enter-plan" "rb/enter-plan"
+    "exit-plan" "rb/exit-plan"
     # provider 配置（D-54）
     "llm" "rb/llm"
     "llm-set" "rb/llm-set"

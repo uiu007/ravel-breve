@@ -5,7 +5,8 @@
 
 (defn rb/mode
   "Name|Mode -- ；切换处理流程。
-   给字符串 = 取预制模式（`default` / `ptc`）；给模式表 = 用它（可用 `mode-of` 造）。
+   给字符串 = 取预制模式（`default` / `standard` / `ptc` / `minimal` / `cordis`）；
+   给模式表 = 用它（可用 `mode-of` 造）。
    未知名字 → 20（未知的词），未知模式值 → 31。"
   []
   (def x (rb/pop))
@@ -32,10 +33,23 @@
   (rb/push (rb/mode-capture)))
 
 (defn rb/flag
-  "Key -- Bool ；读一个历史标记开关（`history-turn` / `history-origin` / `history-mode`）。"
+  "Key -- Bool ；读一个历史标记开关（`history-turn` / `history-origin` / `history-mode` / `plan`）。"
   []
   (def k (rb/pop))
   (rb/push (rb/flag-get k)))
+
+(defn rb/enter-plan
+  "-- ；进入 plan 模式（打开 `plan` 开关，并登记 `exit_plan_mode` 工具）。
+   与 dsh 的 `/plan` 同构：**正交于预置模式**，工具不换，只加提示约束。"
+  []
+  (rb/enter-plan!)
+  nil)
+
+(defn rb/exit-plan
+  "-- ；手动退出 plan 模式（`exit_plan_mode` 之外的口子，同 dsh 的 `/plan off`）。"
+  []
+  (rb/exit-plan!)
+  nil)
 
 (defn rb/flag-set
   "Value Key -- ；写一个历史标记开关（值必须是布尔；nil = 删除该项）。"

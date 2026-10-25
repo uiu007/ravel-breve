@@ -221,3 +221,6 @@
 
 # REQ-60：间接层接线（rb/eval.janet 的 `rb/new-env` 里调用）
 (set rb/plugin-startup rb/plugin-startup!)
+
+# D-72：cordis 模式的 `plugin` 工具要用它（modes 先于 plugins 装载，走间接层）
+(set rb/mode-plugin-load rb/plugin-load)

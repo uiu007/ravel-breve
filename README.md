@@ -4,7 +4,7 @@
 
 - **第一次用：读 `QUICKSTART.md`**（10 分钟，只讲跑起来要的那点东西）；完整手册 `docs/GUIDE.md`
 - 命令：`ravel`，脚本扩展名 `.breve`，提示符 `ravel> `
-- 规格（现行）：`ravel-breve-spec-v1.0l.md`（预制的可发现性：REQ-64；配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
+- 规格（现行）：`ravel-breve-spec-v1.0m.md`（模式的复刻：REQ-65/66 + dsh 四个预置；预制的可发现性：REQ-64；配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
   `ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0j.md` 保留为历史（不删改）
 - 许可：**MIT**（见 `LICENSE`）；嵌入的 Janet 1.42.1 亦为 MIT（见 `vendor/janet`）
 - 规格反馈（缺陷/留白）：`docs/SPEC-FEEDBACK.md`
@@ -29,13 +29,14 @@ bash tests/e2e/agent.sh     # 真 provider 验收（NVIDIA；无密钥则跳过�
 bash tests/e2e/opencode.sh  # 真 provider 验收（OpenCode Zen/Go；无密钥则跳过）
 ```
 
-验收现状：**M11**（词表 L0–L10 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
-工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边 + 用量 / 取消 / 截止 + 请求头 / 模型列表 + 插件 ABI + 配置预设）。
-`make test` → 402 单元/符合性 + 121 端到端 + 17 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0，`make test-oc` → 真 OpenCode 25/0。
+验收现状：**M14**（词表 L0–L10 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
+工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边 + 用量 / 取消 / 截止 + 请求头 / 模型列表 +
+插件 ABI + 配置预设 + dsh 四个预置模式 / 正交 plan）。
+`make test` → 417 单元/符合性 + 144 端到端 + 17 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0，`make test-oc` → 真 OpenCode 25/0。
 
 ```sh
 make clean && make
-./bin/ravel -v                         # ravel breve 1.0l · janet 1.42.1
+./bin/ravel -v                         # ravel breve 1.0m · janet 1.42.1
 ./bin/ravel --dump -e 'take 2 "abcde"' # (do (rb/push "abcde") (rb/push 2) (rb/take))
 ./bin/ravel -e 'take 2 "abcde"'        # "ab"
 ./bin/ravel -e 'map [ * 2 ] { 1 2 3 }' # (2 4 6)
@@ -54,6 +55,7 @@ ravel --serve               # NDJSON over stdio（前后端分离，REQ-24）
 ravel --json ...            # 结果按协议消息形状输出（REQ-22）
 ravel --dump ...            # 打印转译产物（REQ-31）
 ravel --preset opencode-go  # 启动即装 provider 配置预设（REQ-62，可重复）
+ravel --presets | --modes   # 有哪些配置预设 / 处理流程模式（REQ-64，只读）
 ravel --no-config           # 不读 ~/.config/ravel/config.json（REQ-63）
 ravel -v | -h
 ```
@@ -189,6 +191,34 @@ llm-export ".ravel.json"        # 存回去 → 4（写入项数）
   两个查询开关不建工作区、不求值、退出码 `0`（`--core-only` 下 `--presets` 报 60）。
 - 一键配好 OpenCode Go：`tools/oc-setup.sh sk-xxxx`（密钥 → `secrets/opencode.key` chmod 600 +
   预设 → `~/.config/ravel/config.json`；已有密钥**拒绝覆盖**，`--force` 会先留 `.bak`）。
+
+## 处理流程模式（M14 / v1.0m）
+
+「一轮请求怎么被处理」是一份**数据**，不是实现细节。`mode` 装进去，`mode-of` 取出来。
+五个预制模式里，四个是 DeepSeek harness 预置的复刻：
+
+| 模式 | 工具 | 提示 | 对应 dsh |
+|---|---|---|---|
+| `default` | 六个默认工具 | 无 | —（本仓自有）|
+| `standard` | 六个默认工具 | 编码 agent 人格 + 工作目录 | `standard` |
+| `ptc` | 六个默认工具 + `eval`，**wire 上只有 `eval`** | PTC 说明 + 隐藏工具清单 | `ptc` |
+| `minimal` | 只有 `shell` | 就一句（不带运行时上下文）| `minimal` |
+| `cordis` | 六个默认工具 + `plugin` | `standard` + 「你可以修改自己」| `cordis` |
+
+```breve
+mode "ptc"                     # 换处理流程
+modes                          # → ("cordis" "default" "minimal" "ptc" "standard")
+mode-of                        # → 模式表（钩子 / 开关 / 提示 / 工具 / wire）
+enter-plan                     # plan 是**正交开关**：不换模式，只加提示 + 一个工具
+flag "plan"                    # → true
+```
+
+- **注册 ≠ 公示**：`:wire` 决定模型在请求里**看得见**哪些工具；不在 `:wire` 里的工具仍然注册着，
+  PTC 程序里 `invoke` 得到（dsh 的 `run_code` + 全量 SDK 就是这个形状）。
+- **plan 正交于预置**：`enter-plan` / `exit-plan`（手动出口）+ `exit_plan_mode` 工具（渐进披露）；
+  进 plan 不换模式名、不换工具集、不换钩子。
+- **提示只进请求**：前置一条 `role:"system"`，**不进会话历史**；`{{model}}` / `{{cwd}}` 每轮现拼。
+- 另加两个文件工具：`read`（带行号、`offset`/`limit` 续读）与 `write`（原子替换）。
 
 ## 持久化与工作区（M4）
 

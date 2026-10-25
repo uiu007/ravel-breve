@@ -20,6 +20,15 @@
   (def v (get args k))
   (if (nil? v) nil (string v)))
 
+(defn cap/tool-num
+  "取一个数字参数（模型有时给字符串 3，也认）。缺省/认不出 → nil。"
+  [args k]
+  (def v (get args k))
+  (cond
+    (number? v) v
+    (string? v) (scan-number v)
+    true nil))
+
 (defn cap/tool-require
   "必填字段；缺了就报错（`rb/tool-run` 会把它归到 60）。"
   [args k]
@@ -75,6 +84,54 @@
   (when (= hits 0) (error (string "edit：文件里找不到 old（" path "）")))
   (spit path (string/replace-all old (or new "") text))
   (rb/push (string "已改 " hits " 处：" path))
+  nil)
+
+(defn cap/tool-read
+  "read：{ path, offset?, limit? } —— 带行号读文本（dsh 的 read）。
+   offset 从 1 起；limit 缺省 400、上限 2000；被截断时尾附续读提示。"
+  []
+  (def args (rb/pop))
+  (def path (cap/tool-require args "path"))
+  (cap/fs-check path)
+  (def text (cap/fs-read path))
+  (when (nil? text) (error (string "read：读不到 " path)))
+  (def lines0 (cap/tool-lines text))
+  # 末尾的换行不该算成「又一行」（`a\n` 是一行，不是两行）
+  (def total (if (and (> (length lines0) 1) (= "" (get lines0 (dec (length lines0)))))
+               (dec (length lines0))
+               (length lines0)))
+  (def lines lines0)
+  (def off (max 1 (or (cap/tool-num args "offset") 1)))
+  (def lim (min 2000 (max 1 (or (cap/tool-num args "limit") 400))))
+  (def out @[])
+  (var i off)
+  (while (and (<= i total) (< (length out) lim))
+    (array/push out (string i "  " (lines (dec i))))
+    (++ i))
+  (def tail (if (< i total)
+              (string "\n[还有 " (- total (dec i)) " 行：用 offset " i " 接着读]")
+              ""))
+  (rb/push (string (cap/tool-join out "\n") tail))
+  nil)
+
+(defn cap/tool-write
+  "write：{ path, content } —— 原子替换整个文件（同目录临时文件 + rename）。
+   返回写入的字节数（dsh 的 write）。"
+  []
+  (def args (rb/pop))
+  (def path (cap/tool-require args "path"))
+  (def content (or (cap/tool-arg args "content") ""))
+  (cap/fs-check path)
+  (def tmp (string path ".rb-tmp-" (os/getpid)))
+  (def f (file/open tmp :w))
+  (when (nil? f) (error (string "write：写不进临时文件 " tmp)))
+  (file/write f content)
+  (file/close f)
+  (def r (protect (os/rename tmp path)))
+  (when (not (get r 0))
+    (protect (os/rm tmp))
+    (error (string "write：替换失败 " path "（" (get r 1) "）")))
+  (rb/push (length content))
   nil)
 
 # ---- glob（`*` / `?` 段内匹配，`**` 任意层）--------------------------------
@@ -211,7 +268,11 @@
 (def cap/tools-built
   # 只建一次：函数对象在 `ws-new`、预置 `default` 模式、`mode-of` 之间**共享**，
   # 于是模式的 round-trip 可以用 `deep=` 直接比（D-59 / D-61）。
-  @{"edit" @{:desc "改文件：参数 { path, old, new }，把 old 的所有出现换成 new（字面量）。"
+  @{"read" @{:desc "读文件：参数 { path, offset?, limit? }，一行一个「行号 + 文本」，超长会截断并提示续读。"
+            :fn cap/tool-read}
+    "write" @{:desc "写文件：参数 { path, content }，原子替换整个文件，返回字节数。"
+             :fn cap/tool-write}
+    "edit" @{:desc "改文件：参数 { path, old, new }，把 old 的所有出现换成 new（字面量）。"
             :fn cap/tool-edit}
     "grep" @{:desc "搜内容：参数 { pattern, path? }，字面量匹配，输出 path:行号: 文本。"
             :fn cap/tool-grep}

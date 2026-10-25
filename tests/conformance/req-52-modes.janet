@@ -22,15 +22,20 @@
 (deftest "REQ-52：modes 列预制模式；未知名字 → 20"
   (fn []
     (def env (new-ws))
-    (is= (tup ["default" "ptc"]) (tup (eval-top-in env "modes")))
+    (is= (tup ["cordis" "default" "minimal" "ptc" "standard"])
+         (tup (eval-top-in env "modes")))
     (is= 20 (run-in-exit env "mode \"nope\""))))
 
-(deftest "REQ-52：ptc 模式只留一个 eval 工具，并注入系统提示"
+(deftest "REQ-52：ptc 模式 wire 上只公示 eval，并注入系统提示"
   (fn []
     (def env (new-ws))
     (def ws (env :rb-ws))
     (is= 0 (run-in-exit env "mode \"ptc\""))
-    (is= (tup ["eval"]) (tup (sort (keys (ws :tools)))) "工具表只剩 eval")
+    # v1.0m 修订（D-72）：**注册 ≠ 公示**。工具都注册着（程序里 invoke 得到），
+    # 但请求里只公示 eval 一个——这才是 dsh 的 `mode: 'ptc'` 的做法。
+    (def defs (val-in env rb/tool-defs))
+    (is= (tup ["eval"]) (tup (map (fn [d] ((d :function) :name)) defs)) "wire 上只有 eval")
+    (is (not (nil? (val-in env (fn [] (rb/tool-get "glob"))))) "其余工具仍注册着")
     (is (string/find "PTC" (ws :mode-prompt)) "系统提示就位")
     (is= "ptc" (ws :mode))
     (def m (eval-top-in env "mode-of"))

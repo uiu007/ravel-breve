@@ -20,16 +20,45 @@
   (put ((rb/ws) :tools) name @{:desc desc :fn fn})
   nil)
 
-(defn rb/tool-defs
-  "工具表 → provider 的 `tools` 数组；表空则为 nil（请求里不带该字段）。"
+(defn rb/tool-names
+  "工作区工具表里注册过的工具名（升序元组）。"
   []
-  (def t ((rb/ws) :tools))
-  (if (empty? t)
+  (tuple ;(sort (keys ((rb/ws) :tools)))))
+
+(defn rb/tool-wire
+  "本轮**公示**给模型的工具名（升序元组；纯函数式的呈现层，REQ-65）。
+
+   为什么需要它：注册（能 `invoke`）与公示（模型看得见）是两件事——
+   dsh 的 PTC 就是这么做的（wire 上只有 `run_code`，程序里能调全部工具）。
+   - 模式声明了 `:wire` → 只公示这些（不在工具表里的忽略）；
+   - 没声明 → 公示全部注册的；
+   - `plan` 开关打开时追加 `exit_plan_mode`（渐进披露，同 dsh）。"
+  []
+  (def ws (rb/ws))
+  (def t (ws :tools))
+  (def w (ws :mode-wire))
+  (def names @[])
+  (if (nil? w)
+    (each n (keys t) (array/push names n))
+    (each n (if (string? w) (tuple w) w)
+      (when (get t n) (array/push names n))))
+  (when (and (get (ws :flags) "plan") (get t "exit_plan_mode"))
+    (var seen false)
+    (each n names (when (= n "exit_plan_mode") (set seen true)))
+    (when (not seen) (array/push names "exit_plan_mode")))
+  (tuple ;(sort names)))
+
+(defn rb/tool-defs
+  "工具表 → provider 的 `tools` 数组；表空则为 nil（请求里不带该字段）。
+   只公示 `rb/tool-wire` 认可的条目（REQ-65 的呈现层）。"
+  []
+  (def names (rb/tool-wire))
+  (if (empty? names)
     nil
     (do
       (def out @[])
-      (each name (sort (keys t))
-        (def d (get t name))
+      (each name names
+        (def d (rb/tool-get name))
         (array/push out
                     @{:type "function"
                       :function @{:name name

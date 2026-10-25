@@ -65,7 +65,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0l · janet 1.42.1
+ravel breve 1.0m · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -191,7 +191,7 @@ show'
 | 差别 | 做法 |
 |---|---|
 | 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
-| 必须自称客户端 | `User-Agent: ravel-breve/1.0l`（**不许**用通用 SDK 名）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0m`（**不许**用通用 SDK 名）|
 | 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
 
 另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
@@ -1223,7 +1223,7 @@ map [ Role ]'
 
 ---
 
-### 14.5 处理流程：模式 ⇄ 钩子（PTC）
+### 14.5 处理流程：模式 ⇄ 钩子（dsh 四个预置的复刻）
 
 「一轮请求怎么被处理」在这里是**一份数据**（模式），不是隐式的实现细节。
 模式和**工作区现状**可以来回转换：`mode` 装进去，`mode-of` 取出来。
@@ -1234,32 +1234,56 @@ modes
 
 ```
 $ RB_LLM=mock ./bin/ravel -e 'modes'
-("default" "ptc")
+("cordis" "default" "minimal" "ptc" "standard")
 ```
 
-模式表的形状（`mode-of` 的产物）：`@{:kind :mode :name :doc :flags :hooks :prompt :tools}`，
+模式表的形状（`mode-of` 的产物）：
+`@{:kind :mode :name :doc :flags :hooks :prompt :tools :wire}`，
 其中 `:hooks` **8 个事件全在**（未声明 = 空数组），于是"没挂钩子"和"没写这个事件"不会混淆。
 
-### 14.5.1 切到 PTC 模式
+五个预制模式（v1.0m / REQ-65）：`default` 是本仓的最小缺省，
+另外四个是 [DeepSeek harness](https://github.com/deepseek-ai/deepseek-harness)
+`packages/bundle/web-app/presets/*.patch.yml` 的复刻：
 
-```
-mode "ptc"
-mode-of
-mode-tools
-```
+| 模式 | 工具 | 人格 / 提示 | 对应 dsh |
+|---|---|---|---|
+| `default` | 六个默认工具 | 无 | —（本仓自有）|
+| `standard` | 六个默认工具 | 编码 agent（`{{model}}`）+ 工作目录 | `standard.patch.yml` |
+| `ptc` | 六个默认工具 + `eval`，但 `:wire` 上只有 `eval` | PTC 说明 + 隐藏工具的绑定清单 | `ptc.patch.yml` |
+| `minimal` | 只有 `shell` | **就一句** "You are a helpful software engineer assistant." | `minimal.patch.yml` |
+| `cordis` | 六个默认工具 + `plugin` | `standard` + 「你可以修改自己」 | `cordis.patch.yml` |
+
+> **不复制**：`web`（核心不含网络，REQ-37）、`jobs` / `schedule`（`shell` 已够）、
+> `subagent`（本方言的 `agent` / `send` 就是语言级子代理）、`todo`（栈与会话已能表达）、
+> `present` / `plugin-market`（没有对应基础设施）。
+
+#### 注册 ≠ 公示（`:wire`）
+
+一个模式的工具分两层：
+
+- **注册**（`:tools`）：工具表里有它，`invoke` 调得到；
+- **公示**（`:wire`）：`send` 时请求的 `tools` 字段里有它（模型**直接**看得见）。
+
+`ptc` 就是"全都注册、只公示 `eval`"：模型看得到的只有 `eval` 一个工具，
+而它写的程序里可以 `invoke` **任何**已注册工具。这与 dsh 的 PTC 一致
+（wire 上只有 `run_code`，SDK 里能调全部）——两组工具于是被写进 `ptc` 的系统提示。
 
 ```
 $ RB_LLM=mock ./bin/ravel -e 'mode "ptc"
 mode-of
 mode-tools'
-("eval")
+("edit" "eval" "glob" "grep" "read" "shell" "write")
 ```
 
-- `ptc` **只留一个工具** `eval`：模型不再逐步发 `tool_call`，而是把它要做的多步编排写成
+#### 14.5.1 切到 PTC 模式
+
+- `ptc` **只公示一个工具** `eval`：模型不再逐步发 `tool_call`，而是把它要做的多步编排写成
   **一段 ravel 程序**，交给 `eval` 跑；返回的**栈顶**就是工具结果。
 - 切模式会**撤掉所有预制模式声明过的工具**（避免模式互相污染）；用户自己的 `deftool` 不受影响。
 - `ptc` 还带一段系统提示，它**只进请求**（前置一条 `role:"system"`），**不进会话历史**——
   否则历史会被说明文字污染，切回 `default` 后旧提示还留着。
+- `mode-prompt` 给的是**模板原文**（`{{model}}` / `{{cwd}}` 还没代入）；
+  替换发生在 `send` 那一刻，所以换模型 / 换目录立刻生效，不用重建模式。
 
 ### 14.5.2 完整例程：程序内串多个工具
 
@@ -1287,7 +1311,40 @@ $ RB_MOCK_TOOL='eval:{"src": "invoke \"add2\" H{ \"a\" 40 }"}' RB_LLM=mock ./bin
 
 程序失败（栈下溢、词不存在…）→ `60`（编排级），本轮作废，栈回到求值前（D-55）。
 
-### 14.5.3 历史标记：第几轮、从哪来、在哪个模式下
+### 14.5.3 plan：正交于模式的开关（`enter-plan` / `exit_plan_mode`）
+
+dsh 的 plan mode 不是第五个预置——它是**正交**的：`/plan` 进出，工具不换，只换提示。
+本仓用**开关**复刻同一件事：
+
+```
+enter-plan
+flag "plan"
+```
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'enter-plan
+flag "plan"'
+true
+```
+
+打开 `plan` 之后，本轮 system 提示 = 模式提示 + plan 段落（先探索、别改文件、把计划写全）；
+同时 `exit_plan_mode` 才出现在 wire 上（**渐进披露**：没进过 plan 的会话看不见它）。
+
+模型交计划时调用它（参数 `{ plan }`，markdown 以 `#` 开头）：
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'enter-plan
+invoke "exit_plan_mode" H{ "plan" "# 计划" }
+flag "plan"'
+"计划已提交，已退出 plan 模式：\n\n# 计划"
+false
+```
+
+- 手动退出：`exit-plan`（同 dsh 的 `/plan off`）。
+- 不在 plan 模式时调 `exit_plan_mode` → `60`。
+- 进 plan **不换模式名、不换工具集、不换钩子**——这正是"正交"的意思。
+
+### 14.5.4 历史标记：第几轮、从哪来、在哪个模式下
 
 Utter 上默认打三个标记，**全部可关**：
 
@@ -1368,9 +1425,9 @@ mode-name'
 
 ---
 
-### 14.6 默认工具包（`edit` / `grep` / `glob` / `shell`）
+### 14.6 默认工具包（`read` / `write` / `edit` / `grep` / `glob` / `shell`）
 
-能力层（`cap/tools.janet`）建工作区时就装好四个工具，所以 `invoke` 直接能用，
+能力层（`cap/tools.janet`）建工作区时就装好六个工具，所以 `invoke` 直接能用，
 模型自决调用走的也是同一批（REQ-48 的默认 `@Toolcall` 钩子）：
 
 ```
@@ -1384,6 +1441,8 @@ $ RB_LLM=mock ./bin/ravel -e 'invoke "glob" H{ "pattern" "src/*.c" }'
 
 | 工具 | 参数 | 结果 |
 |---|---|---|
+| `read` | `{ path, offset?, limit? }` | 带行号逐行读；`offset` 从 1 起，`limit` 缺省 400 / 上限 2000；截断时提示续读 |
+| `write` | `{ path, content }` | **原子替换**整个文件（临时文件 + rename），返回字节数 |
 | `edit` | `{ path, old, new }` | 把 `old` 的所有出现换成 `new`（**字面量**）；一处没找到 → `60` |
 | `grep` | `{ pattern, path? }` | 逐行 `path:行号: 文本`（字面量，最多 200 条）|
 | `glob` | `{ pattern, dir? }` | `*` / `?` 段内、`**` 任意层；一行一个路径（最多 200 条）|
@@ -1396,7 +1455,7 @@ $ RB_LLM=mock ./bin/ravel -e 'invoke "edit" H{ "path" "build/tmp/g.txt" "old" "b
 "已改 1 处：build/tmp/g.txt"
 ```
 
-- 三个文件工具都守 **D-60 的沙箱**（根 = 当前目录）：越界 → `60`（工具本体失败）。
+- 五个文件工具都守 **D-60 的沙箱**（根 = 当前目录）：越界 → `60`（工具本体失败）。
 - `grep` / `glob` 是**字面量/通配**，不是正则：`edit` 的 `old` 抄错一个字就会报「找不到」。
 - `shell` 默认关闭，要显式开：
 
@@ -1582,10 +1641,16 @@ $ ./bin/ravel --presets
 
 $ ./bin/ravel --modes
 处理流程模式：
-  default    工具：edit glob grep shell
+  cordis     工具：edit glob grep plugin read shell write
+             dsh preset cordis 的复刻：standard + 改自己（plugin 工具装卸插件）
+  default    工具：edit glob grep read shell write
              缺省：收尾钩子把流合并进会话，工具调用自动执行（REQ-18 / REQ-48）
-  ptc        工具：eval
-             仿 DeepSeek harness 的 PTC：模型提交程序，程序里 invoke 工具；只有一个 eval 工具
+  minimal    工具：shell
+             dsh preset minimal 的复刻：只有 shell；人格是完整系统提示，不带运行时上下文
+  ptc        工具：edit eval glob grep read shell write
+             dsh preset ptc 的复刻：wire 上只有 eval（呈现层），程序里 invoke 任何工具
+  standard   工具：edit glob grep read shell write
+             dsh preset standard 的复刻：编码 agent 的人格 + 完整文件工具 + shell
 用法：mode "<名字>"（在方言里切换；`modes` 词也一样能列名字）
 ```
 
@@ -1688,7 +1753,7 @@ $ tools/oc-setup.sh --local             # 不想写家目录：配置写 ./.rave
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0l · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0m · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -1894,12 +1959,14 @@ ravel> ()
 | L8 钩子 / 工具 | `@on` `@off` `deftool` `invoke` `resend` `stop` `cancel` `drain` `next` |
 | L9 前端 | `watch` `subscribe` `unsubscribe` |
 | L9b 插件 | `plug` `plugins` `unplug` |
+| L10 处理流程 | `mode` `modes` `mode-of` `mode-name` `mode-prompt` `mode-tools` `flag` `flag-set` `enter-plan` `exit-plan` |
 | provider 配置 | `llm` `llm-get` `llm-set` `llm-models` `llm-auto` `llm-import` `llm-export` |
 
-完整栈效应见 `ravel-breve-spec-v1.0l.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
+完整栈效应见 `ravel-breve-spec-v1.0m.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
 （v1.0e 已把 SF-14…SF-35 冻结；v1.0f 加 REQ-52 处理流程层；v1.0g 加沙箱与默认工具；
 v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型列表；
-v1.0j 加插件 ABI 与 skills；v1.0k 加配置预设与启动装载；v1.0l 加预制的可发现性）。
+v1.0j 加插件 ABI 与 skills；v1.0k 加配置预设与启动装载；v1.0l 加预制的可发现性；
+v1.0m 加 dsh 四个预置的复刻、`wire` 呈现层与正交的 plan）。
 
 ---
 

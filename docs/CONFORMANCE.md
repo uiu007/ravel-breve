@@ -1,8 +1,8 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0l.md`**（预制的可发现性）；
-`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0k.md` 为历史原文。
-状态：**M12**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+依据规格：**`ravel-breve-spec-v1.0m.md`**（模式的复刻）；
+`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0l.md` 为历史原文。
+状态：**M14**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
 > v1.0d 新增 **REQ-47…REQ-51**（见文末）；**v1.0e 不新增 REQ**（只把 SF-14…SF-35 冻结，见其附录 I）；
@@ -12,7 +12,9 @@
 > **v1.0i 新增 REQ-58 / REQ-59**（自定义请求头、模型列表与自动配置，见其 §4.16 与附录 N）；
 > **v1.0j 新增 REQ-60 / REQ-61**（插件装载卸载、插件编写 skills 的分层，见其 §4.17 与附录 O）；
 > **v1.0k 新增 REQ-62 / REQ-63**（配置预设的导入导出、启动装载，见其 §4.18 与附录 P）；
-> **v1.0l 新增 REQ-64**（预制的可发现性，见其 §4.19 与附录 Q）。
+> **v1.0l 新增 REQ-64**（预制的可发现性，见其 §4.19 与附录 Q）；
+> **v1.0m 新增 REQ-65 / REQ-66**（注册与公示分离、正交 plan，见其 §4.13 与附录 S），
+> 并按 D-72 **修订 REQ-52**（`ptc` 由「只留一个工具」改为「全都注册、只公示 `eval`」）。
 
 跑法：`make test`（单元 + 符合性 + 端到端 + 附录 D）。
 
@@ -332,3 +334,13 @@ D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
 | REQ-64 | 预制的可发现性：`ravel --presets`（名字 / provider / model / **绝对目录** / 用户配置文件状态）与 `ravel --modes`（名字 / 工具 / 一句说明）；均**只读**（不建工作区、不求值、不装载）、退出码 `0`；空目录仍 `0`；坏预设只影响它那一行；`--core-only` 下 `--presets` → 60、`--modes` 照常；找不到预设时**报错附可用名字**（显式路径只提 `--presets`）；**搜索路径不变**（不做多路径搜索） | ✅ | `unit/preset.janet`（4 条：列表/排序、容错、报错带名字、用户配置路径判据）、`e2e/cli.sh`（13 条：两个开关的 rc 与输出、空目录与坏文件、报错文案、`--core-only` 60）、`examples/17-presets.sh`（⑨⑩⑪） |
 
 决策记录：D-71（可发现性与搜索路径）。
+
+## v1.0m 新增 REQ（65–66）+ REQ-52 修订
+
+| REQ | 内容 | 状态 | 测试 |
+|---|---|---|---|
+| REQ-65 | **注册 ≠ 公示**：模式表新增 `:wire`（`nil` = 公示全部）；`send` 的 `tools` 只含公示的名字（升序）；不在 `:wire` 里的工具**仍注册着**（`invoke` 与 PTC 程序里可调），并写进提示的「隐藏工具清单」；`ptc` 的 `:tools` = 六默认 + `eval`、`:wire` = `("eval")`；五个预制模式 `default` / `standard` / `ptc` / `minimal` / `cordis`（人格 + 工具集 + `:wire`）；提示模板 `{{model}}` / `{{cwd}}` 每轮现拼 | ✅ | `unit/modes.janet`（REQ-65 四条：wire 呈现层、standard/minimal/cordis、plan 正交、五模式往返）、`unit/cap-tools.janet`（`read` / `write`）、`conformance/req-52-modes.janet`（wire 上只有 `eval`、其余工具仍注册着）、`e2e/cli.sh`（`--modes` 五名字、ptc 程序里 `invoke glob` 回真实结果、minimal 调 `write` → 60） |
+| REQ-66 | **plan 正交于预置**：`enter-plan` 打 `plan` 开关 + 登记 `exit_plan_mode`（渐进披露）；`exit-plan` 手动退出；plan 打开时 system 提示 = 模式提示 + plan 段落，**不换模式 / 工具集 / 钩子**；`exit_plan_mode { plan }` 交计划并关开关，不在 plan 时 → 60 | ✅ | `unit/modes.janet`（plan 正交一条：模式名与工具不变、wire 多出 `exit_plan_mode`、提示含 plan 段、退出后复原）、`e2e/cli.sh`（`enter-plan` → `flag "plan"` 为 `true`、`exit_plan_mode` 后为 `false`、`exit-plan` 手动出口） |
+| REQ-52（修订）| `ptc` 的表述由「只保留一个工具 `eval`」改为「**wire 上只有一个** `eval`，工具全都注册着」；模式表加 `:wire` | ✅ | `conformance/req-52-modes.janet`、`unit/modes.janet` |
+
+决策记录：D-72（复刻 dsh 四预设 + 呈现层与注册分离 + plan 正交）。

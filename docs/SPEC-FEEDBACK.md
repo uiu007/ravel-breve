@@ -408,3 +408,44 @@ provider 配置预设（`presets/*.json`，v1.0k）与处理流程模式（`mode
    多一条隐式路径就多一条「为什么装的是另一份」的歧义；要到处能用请用用户配置文件（REQ-63）。
 
 **状态**：v1.0l 已冻结（REQ-64，附录 Q），实现见 D-71。
+
+---
+
+## SF-38 「模式"照抄名字"与"照抄语义"是两件事」（v1.0m / REQ-65 / REQ-66）
+
+**来源。** 用户要求：「查看 DeepSeek harness 实现的全部模式（modes），并尝试复刻这些模式」。
+读 dsh（`packages/bundle/web-app/presets/{standard,ptc,minimal,cordis}.patch.yml`、
+`packages/plan/plan-mode/README.md`、`packages/preset/persona/README.md`）后，发现本仓的 `ptc`
+**只抄到了名字**：
+
+| | dsh 的 PTC | 本仓 v1.0f–v1.0l 的 `ptc` |
+|---|---|---|
+| wire 上模型的工具 | 只有 `run_code` | 只有 `eval`（一致）|
+| 注册着的工具 | **全部**（程序里随便调）| **没有**（切模式时被撤掉）|
+| 结果 | 多步编排照样能跑 | 程序里 `invoke` 一律报「未注册的工具」|
+
+规格 v1.0f 写的是「只保留**一个**工具 `eval`」——**"保留"被实现读成了"只留一个注册"**，
+而 dsh 的语义是「只**公示**一个」。这不是实现与规格不符，是**规格本身说歧义了**。
+
+**根因是一个概念被压成一条**：工具在系统里有两件事——
+**注册**（谁能调：`invoke` / 程序 / 钩子）与**公示**（模型在请求里直接看见谁）。
+v1.0f 只有一张工具表，于是「wire 上少一点」只能靠「表里少一点」实现。
+
+**建议（v1.0m 采纳）。**
+
+1. **REQ-65**：模式新增 `:wire`（公示层）。`nil` = 公示全部；否则只公示这些名字。
+   不在 `:wire` 里的工具**仍注册着**，并写进该模式提示的「隐藏工具清单」（对应 dsh 的 `tools:sdk`）。
+2. **复刻四个预置**：`standard` / `ptc`（改）/ `minimal` / `cordis`，各自的人格提示、工具集、`:wire`。
+   `default` 保持本仓缺省不变（**向后兼容**）。
+3. **REQ-66**：dsh 的 plan mode 是**正交**的（`/plan` 进出，工具不换、只换提示，`exit_plan_mode`
+   渐进披露）。本仓用**开关**表达：`enter-plan` / `exit-plan` + `plan` 段落 + 一个工具，
+   **不新加模式**——"再加一个模式"会把「正交」变成「互斥」。
+4. **补两个 `tool-fs` 工具**：`read`（带行号 / `offset` / `limit`）与 `write`（原子替换），
+   否则 `standard` 的复刻不完整。
+5. **明确不复制**：`web` / `jobs` / `schedule` / `subagent` / `todo` / `present` / `plugin-market`
+   ——见规格 §5 与 D-72 的理由。
+
+**未做的（留给用户裁决）。** dsh 的 `read_image`（多模态：本方言的消息内容是字符串，没有附件概念）
+与 `fs-observation-policy`（"先读后改"的强制：这是**策略**，本仓把它留给模式提示，不做硬约束）。
+
+**状态**：v1.0m 已冻结（REQ-65 / REQ-66，附录 S；REQ-52 随之修订），实现见 D-72。

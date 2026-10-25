@@ -10,14 +10,31 @@
   [name]
   (string ct-dir "/" name))
 
-(deftest "D-61：ws-new 装好四个默认工具（edit / grep / glob / shell）"
+(deftest "D-61 / D-72：ws-new 装好六个默认工具（read/write/edit/glob/grep/shell）"
   (fn []
     (def env (new-ws))
     (def names (sort (keys ((env :rb-ws) :tools))))
-    (is= (tup ["edit" "glob" "grep" "shell"]) (tup names))
-    (is= (tup ["edit" "glob" "grep" "shell"])
+    (is= (tup ["edit" "glob" "grep" "read" "shell" "write"]) (tup names))
+    (is= (tup ["edit" "glob" "grep" "read" "shell" "write"])
          (tup ((env :rb-ws) :mode-tools))
          "记在 :mode-tools，切模式时只撤这一批")))
+
+(deftest "D-72：read 带行号、offset/limit 续读；write 原子替换"
+  (fn []
+    (def env (new-ws))
+    (def p (ct-path "ct-read.txt"))
+    (spit p "alpha\nbeta\ngamma\ndelta\n")
+    (def head (eval-top-in env (string "invoke \"read\" H{ \"path\" \"" p "\" \"limit\" 2 }")))
+    (is (string/find "1  alpha\n2  beta" head) "带行号，limit 生效")
+    (is (string/find "[还有 2 行" head) "截断时尾附续读提示")
+    (def rest (eval-top-in env (string "invoke \"read\" H{ \"path\" \"" p "\" \"offset\" 3 }")))
+    (is (string/find "3  gamma" rest))
+    (is (string/find "delta" rest))
+    # write 是**替换**不是追加，且返回字节数
+    (is= 1 (eval-top-in env (string "invoke \"write\" H{ \"path\" \"" p "\" \"content\" \"z\" }"))
+        "返回写入字节数")
+    (is= "z" (string (slurp p)) "整份替换（原子 rename）")
+    (protect (os/rm p))))
 
 (deftest "D-61：edit 改文件内容（字面量全替换），找不到 old → 60"
   (fn []

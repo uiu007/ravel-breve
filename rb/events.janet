@@ -41,7 +41,8 @@
 # 历史标记开关（D-59）：默认全开；`flag-set false "history-turn"` 可关掉。
 # 标记写在 Utter 上（`:turn` / `:from` / `:mode`），供前端与摘要钩子读，不进 provider 消息。
 (def rb/flag-defaults
-  @{"history-turn" true "history-origin" true "history-mode" true})
+  # `plan` 是**正交于预置模式**的开关（D-72）：进 plan 只加提示与一个工具，不换模式。
+  @{"history-turn" true "history-origin" true "history-mode" true "plan" false})
 
 # 默认钩子的**同一批函数对象**：`ws-new` 与 `default` 模式共用它们，
 # 于是「模式 → 钩子 → 模式」可以用 `deep=` 直接比对（D-59 的往返性质）。

@@ -336,9 +336,33 @@ check "预设：坏文件只影响它那一行" "yes" \
 check_rc "模式：--modes 列出预制模式" 0 $RAVEL --modes
 check "模式：--modes 有 default 与 ptc" "yes" \
       "$(grep -q 'default' /tmp/rb-e2e-out && grep -q 'ptc' /tmp/rb-e2e-out && echo yes || echo no)"
+check "模式：--modes 有 dsh 复刻的四个（standard / minimal / cordis）" "yes" \
+      "$(grep -q 'standard' /tmp/rb-e2e-out && grep -q 'minimal' /tmp/rb-e2e-out \
+         && grep -q 'cordis' /tmp/rb-e2e-out && echo yes || echo no)"
 check "模式：--modes 带说明与工具" "yes" \
       "$(grep -q '工具：' /tmp/rb-e2e-out && echo yes || echo no)"
 check_rc "模式：不存在的模式 → 20（mode 词）" 20 $RAVEL -e 'mode "nope"'
+# REQ-65 / D-72：PTC 的 wire 只公示 eval，但程序里 invoke 得到真实工具
+check_rc "模式：ptc 程序里 invoke glob（wire 藏起来 ≠ 不能调）" 0 $RAVEL -e \
+  'mode "ptc"
+invoke "eval" H{ "src" "invoke \"glob\" H{ \"pattern\" \"rb/MANIFEST\" }" }'
+check "模式：invoke 的结果回得来" '"rb/MANIFEST"' "$(tail -1 /tmp/rb-e2e-out)"
+# REQ-65：plan 是正交开关，不换模式
+check "模式：enter-plan 打开 plan 开关" 'true' \
+      "$($RAVEL -e 'enter-plan
+flag "plan"' 2>/dev/null | tail -1)"
+check "模式：exit_plan_mode 交出计划并关掉开关" 'false' \
+      "$($RAVEL -e 'enter-plan
+invoke "exit_plan_mode" H{ "plan" "# 计划" }
+flag "plan"' 2>/dev/null | tail -1)"
+check "模式：exit-plan 手动退出（同 dsh 的 /plan off）" 'false' \
+      "$($RAVEL -e 'enter-plan
+exit-plan
+flag "plan"' 2>/dev/null | tail -1)"
+check_rc "模式：minimal 只有 shell（调 write → 60）" 60 $RAVEL -e \
+  'mode "minimal"
+invoke "write" H{ "path" "build/tmp/nope.txt" "content" "x" }'
+
 check_rc "core-only：--presets 缺能力 → 60" 60 \
       build/janet -e '(each f (parse-all (slurp "build/core-only/rb-bundle.janet")) (eval f (curenv)))
                       (os/exit (rb/cli-main @["--presets"]))' 

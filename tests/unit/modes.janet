@@ -51,7 +51,7 @@
 (deftest "D-59：modes 列出预制模式（升序元组）"
   (fn []
     (def env (new-ws))
-    (is= ["default" "ptc"] (tup (eval-top-in env "modes")))))
+    (is= ["cordis" "default" "minimal" "ptc" "standard"] (tup (eval-top-in env "modes")))))
 
 (deftest "D-59：切回 default 会撤掉 ptc 声明的工具（模式不互相污染）"
   (fn []
@@ -136,9 +136,82 @@
     (def env (new-ws))
     (is= "default" (eval-top-in env "mode-of\nmode-name"))
     (is= nil (eval-top-in env "mode-of\nmode-prompt") "default 无提示")
-    # D-61：缺省工作区就有能力层装好的四个工具
-    (is= (tup ["edit" "glob" "grep" "shell"]) (tup (eval-top-in env "mode-of\nmode-tools")))
+    # D-61 / D-72：缺省工作区就有能力层装好的六个工具
+    (is= (tup ["edit" "glob" "grep" "read" "shell" "write"])
+         (tup (eval-top-in env "mode-of\nmode-tools")))
     (is= 0 (run-in-exit env "mode \"ptc\""))
     (is= "ptc" (eval-top-in env "mode-of\nmode-name"))
     (is (string/find "PTC" (eval-top-in env "mode-of\nmode-prompt")))
-    (is= (tup ["eval"]) (tup (eval-top-in env "mode-of\nmode-tools")))))
+    (is= (tup ["edit" "eval" "glob" "grep" "read" "shell" "write"])
+         (tup (eval-top-in env "mode-of\nmode-tools")) "dsh 的 PTC：工具都装着（只是不上 wire）")))
+
+# ---- REQ-65 / D-72：dsh 四个预置的复刻 ------------------------------------
+
+(deftest "REQ-65：wire 是呈现层——ptc 只公示 eval，程序里照样能 invoke"
+  (fn []
+    (def env (new-ws))
+    (is= (tup ["edit" "glob" "grep" "read" "shell" "write"])
+         (tup (val-in env rb/tool-wire)) "default：公示全部")
+    (is= 0 (run-in-exit env "mode \"ptc\""))
+    (is= (tup ["eval"]) (tup (val-in env rb/tool-wire)) "ptc：wire 上只有 eval")
+    (def defs (val-in env rb/tool-defs))
+    (is= 1 (length defs) "请求里的 tools 只有一条")
+    (is= "eval" (((defs 0) :function) :name))
+    # 关键回归：**不公示 ≠ 不能调**（v1.0m 之前这里是坏掉的）
+    (is (not (nil? (val-in env (fn [] (rb/tool-get "glob"))))) "glob 仍注册着")
+    (is= "rb/modes.janet"
+         (val-in env (fn [] (rb/tool-run
+                              "eval"
+                              @{"src" "invoke \"glob\" H{ \"pattern\" \"rb/modes.janet\" }"})))
+         "程序里 invoke 得到真实结果")
+    (is= 0 (run-in-exit env "mode \"default\""))
+    (is= (tup ["edit" "glob" "grep" "read" "shell" "write"])
+         (tup (val-in env rb/tool-wire)) "切回来 wire 也复原")))
+
+(deftest "REQ-65：standard / minimal / cordis 的工具集与提示"
+  (fn []
+    (def env (new-ws))
+    (def ws (env :rb-ws))
+    (is= 0 (run-in-exit env "mode \"standard\""))
+    (is= (tup ["edit" "glob" "grep" "read" "shell" "write"]) (tup (ws :mode-tools)))
+    (def p (val-in env (fn [] (rb/mode-prompt-of (rb/mode-capture)))))
+    (is (string/find "coding agent" p) "dsh 的 persona 首句")
+    (is (nil? (string/find "{{" p)) "{{model}} / {{cwd}} 都代入了")
+    (is= 0 (run-in-exit env "mode \"minimal\""))
+    (is= (tup ["shell"]) (tup (ws :mode-tools)) "minimal 只有 shell")
+    (is= "You are a helpful software engineer assistant."
+         (val-in env (fn [] (rb/mode-prompt-of (rb/mode-capture))))
+         "complete：系统提示就是这一句（不带运行时上下文）")
+    (is= 0 (run-in-exit env "mode \"cordis\""))
+    (is (not (nil? (val-in env (fn [] (rb/tool-get "plugin"))))) "cordis 有 plugin 工具")
+    (is (string/find "修改自己"
+                     (val-in env (fn [] (rb/mode-prompt-of (rb/mode-capture))))))))
+
+(deftest "REQ-65：plan 模式正交于预置（enter-plan / exit_plan_mode）"
+  (fn []
+    (def env (new-ws))
+    (is= 0 (run-in-exit env "mode \"standard\""))
+    (is= false (val-in env (fn [] (rb/flag-get "plan"))))
+    (is= (tup ["edit" "glob" "grep" "read" "shell" "write"])
+         (tup (val-in env rb/tool-wire)) "plan 关时 wire 上没有 exit_plan_mode")
+    (is= 0 (run-in-exit env "enter-plan"))
+    (is= true (eval-top-in env "flag \"plan\""))
+    (is= (tup ["edit" "exit_plan_mode" "glob" "grep" "read" "shell" "write"])
+         (tup (val-in env rb/tool-wire)) "渐进披露：wire 上多出 exit_plan_mode")
+    (def p (val-in env (fn [] (rb/mode-prompt-of (rb/mode-capture)))))
+    (is (string/find "plan 模式" p) "提示里加了 plan 段落")
+    (is (string/find "coding agent" p) "预置的人格还在（正交，不是换模式）")
+    # 不在 plan 模式时调 exit_plan_mode → 60
+    (is= 0 (run-in-exit env "exit-plan"))
+    (is= 60 (run-in-exit env "invoke \"exit_plan_mode\" H{ \"plan\" \"# p\" }"))
+    (is= 0 (run-in-exit env "enter-plan"))
+    (def r (val-in env (fn [] (rb/tool-run "exit_plan_mode" @{"plan" "# 计划"}))))
+    (is (string/find "计划已提交" r) "工具把计划交出来")
+    (is= false (eval-top-in env "flag \"plan\""))))
+
+(deftest "REQ-65：五个模式都能 mode-of 往返相等（含 :wire）"
+  (fn []
+    (each name ["default" "standard" "ptc" "minimal" "cordis"]
+      (def env (new-ws))
+      (is= 0 (run-in-exit env (string "mode \"" name "\"")) name)
+      (is= (rb/mode-get name) (val-in env rb/mode-capture) (string name " 往返相等")))))

@@ -1055,3 +1055,80 @@ pty 手测见 `docs/CHK-7.md`。
 **验收。** `tests/unit/preset.janet` 4 条（列表与排序、容错、报错带名字、`RB_CONFIG` 三态）；
 `tests/e2e/cli.sh` 10 条（两个开关的 rc 与关键输出、`--preset` 报错文案、`--core-only` 60）；
 `examples/17-presets.sh` ⑨⑩⑪ 三步可直接照抄。规格：v1.0l §4.19 与附录 Q。
+
+---
+
+## D-72 复刻 dsh 的四个预置：注册 ≠ 公示，plan 正交（v1.0m / REQ-65 / REQ-66）
+
+**内容（四件，一件一个理由）。**
+
+### 1. 注册与公示分离：模式新增 `:wire`
+
+- **问题**：v1.0f 的 REQ-52 说 `ptc`「只保留**一个**工具 `eval`」，实现就切模式时把默认工具
+  **从工具表里撤掉**。于是 PTC 程序里 `invoke "glob" …` 一律「未注册的工具」——
+  而 dsh 的 PTC 是**反过来**的：wire 上只有 `run_code`，工具**全都还在**。
+- **做法**：`ws` 新增 `:mode-wire`；`rb/tool-wire`（`rb/tools.janet`）算「这次请求公示哪些工具」：
+  `nil` → 全部注册的（名字升序）；序列 → 只这些（且**必须**在注册表里）；`plan` 开关打开且注册了
+  `exit_plan_mode` 时追加它。`rb/tool-defs` 改为遍历 `rb/tool-wire`。
+- **理由**：`invoke` 的对象是**注册表**，模型的可见性是**呈现层**。两件事服务两个读者
+  （程序 / 模型），压成一条就必然有一边被牺牲。分开之后「隐藏工具」是有意义的动作，
+  而不是「删掉工具」的副作用。
+- **隐藏的工具不能对自己隐身**：`rb/wire-sdk` 把「wire 上没有但已注册」的工具写进提示
+  （dsh 的 `tools:sdk` 段），否则模型不知道程序里能写什么。
+
+### 2. 五个预制模式（`rb/mode-presets`）
+
+| 模式 | `:tools` | `:wire` | 提示 |
+|---|---|---|---|
+| `default` | 六默认 | `nil` | 无（**v1.0f 行为不变**）|
+| `standard` | 六默认 | `nil` | dsh `persona` 首句（`{{model}}` / `{{cwd}}`）+ SDK 段 |
+| `ptc` | 六默认 + `eval` | `("eval")` | PTC 说明 + 隐藏工具清单 |
+| `minimal` | `shell` | `nil` | **一句**（dsh `complete: true`，不带运行时上下文）|
+| `cordis` | 六默认 + `plugin` | `nil` | `standard` + 「你可以修改自己」|
+
+- **`minimal` 只有 `shell`**：dsh 的 minimal 就是"只给一句人格 + 一个执行器"，其余靠工具自己长；
+  复刻时把「文件工具」也省了，因为那一份的价值在于**小**。
+- **`cordis` 的"改自己"= `plugin` 工具**：本仓的自我修改路径是插件（REQ-60），
+  所以 `cordis` 只比 `standard` 多一个工具、多一句提示。
+- **不复制 dsh 的 `web` / `jobs` / `schedule` / `subagent` / `todo` / `present` / `plugin-market`**：
+  `web` 撞 REQ-37（核心不含网络）；`jobs` / `schedule` 是宿主能力，`shell` 已够；
+  `subagent` 在本方言里是**语言级**的 `agent` + `send`（比工具更自然，REQ-12…15）；
+  `todo` 用会话与栈就能表达；`present` / `plugin-market` 本仓没有对应基础设施。
+  **复刻的是"模式这个形状"，不是 dsh 的插件清单。**
+
+### 3. plan 是开关，不是第六个模式
+
+- **dsh 的事实**：`plan-mode` 是**正交**的——`/plan` 进出，跟哪个预置无关；`exit_plan_mode`
+  **渐进披露**（进 plan 时才加入 admitted 集合，且 Native 与 PTC 共用同一集合）。
+- **做法**：`plan` 是 `rb/flag-defaults` 里缺省 `false` 的开关；`enter-plan` 打开并登记
+  `exit_plan_mode`（登记 ≠ 公示：只有开关打开时才进 `rb/tool-wire`）；`exit-plan` 手动退出；
+  `exit_plan_mode { plan }` 交计划 + 关开关。提示侧：`rb/plan-section` 追加在模式提示之后。
+- **理由**：把 plan 做成**模式**会让「standard + plan」这种组合**不存在**——
+  正交的东西一旦变成枚举，就再也拼不回来。开关是两个自由度的乘积，模式是枚举。
+- **fail closed 的落点**：dsh 在没有用户问答通道时 `exit_plan_mode` 失败；本仓没有问答通道，
+  所以它直接**交计划并退出**（`rb/flag-set! "plan" false`）——同一件事的另一种合法落点，
+  已写进 REQ-66。
+
+### 4. 两个新文件工具（`read` / `write`）
+
+- `read { path, offset?, limit? }`：行号 + 两个空格 + 文本；`offset` 从 1 起，`limit` 缺省 400 /
+  上限 2000；截断时尾部附 `[还有 N 行：用 offset X 接着读]`；末尾空行不计。
+- `write { path, content }`：同目录临时文件 + `os/rename` **原子替换**，返回字节数。
+  （`edit` 是"改一处"，`write` 是"换整份"——两个动作的心智模型不同，不该挤进一个工具。）
+- 两者都在**能力层**（`cap/tools.janet`）、都过 REQ-53 沙箱；核心仍不认识文件（附录 D 不变）。
+
+**踩到的坑（留档）。**
+
+- `rb/prompt-subst` 用 `(-> text (string/replace-all "{{model}}" model) …)`：
+  `->` 把 `text` 塞成**第一参**，而 `string/replace-all` 的签名是 `(patt subst str)`——
+  于是整段提示成了"被替换的 str"，返回值退化成一个 **cwd**。改用 `->>`（追加到**最后**）
+  或直接写 `(string/replace-all "{{model}}" model text)`。
+- `rb/flag-get "plan"` 在 `rb/flag-defaults` 里没有 `plan` 时返回 `nil` 而不是 `false`：
+  测试断言 `false` 会红。开关的**缺省值必须在表里显式写出**——`nil` 是"没定义"，不是"关"。
+
+**验收。** `tests/unit/modes.janet`（五模式列表、默认六工具、ptc 七工具 + `:wire`、
+`wire` 呈现层三条、`standard` / `minimal` / `cordis` 人格与工具、plan 正交一条、五模式往返）；
+`tests/unit/cap-tools.janet`（`read` 带行号 / `offset` 续读、`write` 原子替换）；
+`tests/conformance/req-52-modes.janet`（wire 只有 `eval` 而工具仍注册着）；
+`tests/e2e/cli.sh`（`--modes` 五名字、ptc 程序里 `invoke glob` 回真实结果、minimal 调 `write` → 60、
+`enter-plan` / `exit_plan_mode` / `exit-plan` 三个开关断言）。规格：v1.0m §4.13 与附录 S。

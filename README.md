@@ -4,7 +4,7 @@
 
 - **第一次用：读 `QUICKSTART.md`**（10 分钟，只讲跑起来要的那点东西）；完整手册 `docs/GUIDE.md`
 - 命令：`ravel`，脚本扩展名 `.breve`，提示符 `ravel> `
-- 规格（现行）：`ravel-breve-spec-v1.0m.md`（模式的复刻：REQ-65/66 + dsh 四个预置；预制的可发现性：REQ-64；配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
+- 规格（现行）：`ravel-breve-spec-v1.0n.md`（模式的设定：REQ-67 工具与设定自洽；模式的复刻：REQ-65/66 + dsh 四个预置；预制的可发现性：REQ-64；配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
   `ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0j.md` 保留为历史（不删改）
 - 许可：**MIT**（见 `LICENSE`）；嵌入的 Janet 1.42.1 亦为 MIT（见 `vendor/janet`）
 - 规格反馈（缺陷/留白）：`docs/SPEC-FEEDBACK.md`
@@ -29,14 +29,14 @@ bash tests/e2e/agent.sh     # 真 provider 验收（NVIDIA；无密钥则跳过�
 bash tests/e2e/opencode.sh  # 真 provider 验收（OpenCode Zen/Go；无密钥则跳过）
 ```
 
-验收现状：**M14**（词表 L0–L10 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
+验收现状：**M15**（词表 L0–L10 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
 工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边 + 用量 / 取消 / 截止 + 请求头 / 模型列表 +
 插件 ABI + 配置预设 + dsh 四个预置模式 / 正交 plan）。
-`make test` → 417 单元/符合性 + 144 端到端 + 17 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0，`make test-oc` → 真 OpenCode 25/0。
+`make test` → 419 单元/符合性 + 149 端到端 + 18 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0，`make test-oc` → 真 OpenCode 25/0。
 
 ```sh
 make clean && make
-./bin/ravel -v                         # ravel breve 1.0m · janet 1.42.1
+./bin/ravel -v                         # ravel breve 1.0n · janet 1.42.1
 ./bin/ravel --dump -e 'take 2 "abcde"' # (do (rb/push "abcde") (rb/push 2) (rb/take))
 ./bin/ravel -e 'take 2 "abcde"'        # "ab"
 ./bin/ravel -e 'map [ * 2 ] { 1 2 3 }' # (2 4 6)
@@ -192,7 +192,7 @@ llm-export ".ravel.json"        # 存回去 → 4（写入项数）
 - 一键配好 OpenCode Go：`tools/oc-setup.sh sk-xxxx`（密钥 → `secrets/opencode.key` chmod 600 +
   预设 → `~/.config/ravel/config.json`；已有密钥**拒绝覆盖**，`--force` 会先留 `.bak`）。
 
-## 处理流程模式（M14 / v1.0m）
+## 处理流程模式（M14 / v1.0m，设定自洽于 v1.0n）
 
 「一轮请求怎么被处理」是一份**数据**，不是实现细节。`mode` 装进去，`mode-of` 取出来。
 五个预制模式里，四个是 DeepSeek harness 预置的复刻：
@@ -219,6 +219,9 @@ flag "plan"                    # → true
   进 plan 不换模式名、不换工具集、不换钩子。
 - **提示只进请求**：前置一条 `role:"system"`，**不进会话历史**；`{{model}}` / `{{cwd}}` 每轮现拼。
 - 另加两个文件工具：`read`（带行号、`offset`/`limit` 续读）与 `write`（原子替换）。
+- **工具与设定自洽**（M15 / v1.0n）：`shell` 需要前置设定 `allow-shell`，它**随模式一起来**
+  （五个预制模式都声明 `true`，不切模式也是配好的）——所以 `default` 下 `invoke "shell"` 开箱即用；
+  关掉写 `flag-set false "allow-shell"` 或置 `RB_ALLOW_SHELL=0`，关掉后它连 wire 都不上。
 
 ## 持久化与工作区（M4）
 

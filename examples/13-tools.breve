@@ -18,6 +18,9 @@ show
 read "build/tmp/ravel-13.txt"
 show
 
-# 4) shell 默认关闭：这里不调用；要试就 RB_ALLOW_SHELL=1 后
-#    invoke "shell" H{ "cmd" "wc -l build/tmp/ravel-13.txt" }
+# 4) shell 需要一个前置设定 allow-shell（模式声明，缺省开；REQ-67）。
+#    关掉它的两条路：flag-set false "allow-shell" / RB_ALLOW_SHELL=0——
+#    关掉后它连 wire 都不上（模型看不见），invoke 会给出点名的 60。
+invoke "shell" H{ "cmd" "wc -l build/tmp/ravel-13.txt" }
+show
 "工具包就绪"

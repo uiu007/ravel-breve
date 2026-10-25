@@ -181,3 +181,62 @@ flag "plan"'                              # "计划已提交…" 然后 false
 - **`fs-observation-policy`**（"先读后改"的强制）：本仓把它留在**提示**里（`standard` 人格会要求先读），
   不做硬约束——硬约束需要一个 per-agent 的"已读文件"集合，那是新状态。
 - **多路径预设搜索**：D-71 明确不做，本版不变。
+
+---
+
+## 6. v1.0n 追记：模式的设定（D-73 / REQ-67）
+
+用户报的现象（缺省模式里模型调 `shell`，整个回合以失败收场）：
+
+```
+ravel: @RoundDone 失败：流失败：工具失败：shell：shell 默认关闭：需要 RB_ALLOW_SHELL=1（它等价于绕过文件沙箱，D-61）
+```
+
+判词：「默认模式当然要有匹配它的初始设定，而不是要手动操作」。处置：**前置设定归模式声明**
+（`:tools/gates` → `allow-shell`），设定不满足的工具**不上 wire**，关掉只需一行。
+详见 D-73 / SF-39；规格 v1.0n §4.14 + 附录 T。
+
+### 6.1 十步人工验收
+
+```
+# ① 开箱即用（不设任何环境变量）
+./bin/ravel -e 'invoke "shell" H{ "cmd" "echo hi" }'          # "hi
+"
+
+# ② 设定是看得见的
+./bin/ravel --modes                                            # 每个模式一行「设定：allow-shell=on」
+
+# ③ 一行关掉
+./bin/ravel -e 'flag-set false "allow-shell"
+invoke "shell" H{ "cmd" "echo hi" }'                            # 60，错误里点名 allow-shell
+
+# ④ 环境变量压过模式设定（两个方向）
+RB_ALLOW_SHELL=0 ./bin/ravel -e 'invoke "shell" H{ "cmd" "echo hi" }'   # 60
+RB_ALLOW_SHELL=1 ./bin/ravel -e 'flag-set false "allow-shell"
+invoke "shell" H{ "cmd" "echo hi" }'                            # "hi
+"
+
+# ⑤ 最小模式也自洽
+./bin/ravel -e 'mode "minimal"
+invoke "shell" H{ "cmd" "echo ok" }'                            # "ok
+"
+```
+
+| # | 手工动作 | 期望 |
+|---|---|---|
+| 1 | 不设 `RB_ALLOW_SHELL`，`invoke "shell"` | 能跑（缺省 `default` 配好了）|
+| 2 | `--modes` | 五个模式各带 `设定：allow-shell=on` |
+| 3 | `flag-set false "allow-shell"` 后 `invoke "shell"` | `60`，消息点名 `allow-shell` |
+| 4 | 同上后看请求的工具表 | `shell` 不在其中（注册表里还在：`invoke` 仍是 60 而非 20）|
+| 5 | `RB_ALLOW_SHELL=0` + 开关为 `true` | `60`（环境变量优先）|
+| 6 | `RB_ALLOW_SHELL=1` + 开关为 `false` | 能跑（环境变量优先）|
+| 7 | `mode "minimal"` 后 `invoke "shell"` | 能跑（`minimal` 也声明了设定）|
+| 8 | 自造模式（`flag-set false "allow-shell"` 后 `mode-of` → `mode`） | stderr 一行告警，退出码不变 |
+| 9 | `make test` | 419 单元/符合性 + 149 端到端 + 18 例程 + core-only 全绿 |
+| 10 | `./bin/ravel -v` | `ravel breve 1.0n · janet 1.42.1` |
+
+### 6.2 仍然留给用户裁决
+
+- `read_image`（要先给 `Utter` 加内容部件）与 `fs-observation-policy`（"先读后改"的硬约束）——
+  同 §5.2，本版未做。
+- 多路径预设搜索（D-71 明确不做）。

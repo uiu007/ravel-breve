@@ -42,7 +42,11 @@
 # 标记写在 Utter 上（`:turn` / `:from` / `:mode`），供前端与摘要钩子读，不进 provider 消息。
 (def rb/flag-defaults
   # `plan` 是**正交于预置模式**的开关（D-72）：进 plan 只加提示与一个工具，不换模式。
-  @{"history-turn" true "history-origin" true "history-mode" true "plan" false})
+  # `allow-shell` 是**工具的前置设定**（REQ-67）：`shell` 需要它。缺省**开**——
+  # 缺省工具表里有 shell，而"看得见却一调就失败"不是"默认配好"，是埋雷（D-73）。
+  # 关掉的两条路：`flag-set false "allow-shell"` / `RB_ALLOW_SHELL=0`（明细见 `--modes`）。
+  @{"history-turn" true "history-origin" true "history-mode" true
+    "plan" false "allow-shell" true})
 
 # 默认钩子的**同一批函数对象**：`ws-new` 与 `default` 模式共用它们，
 # 于是「模式 → 钩子 → 模式」可以用 `deep=` 直接比对（D-59 的往返性质）。

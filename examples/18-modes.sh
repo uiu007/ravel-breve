@@ -101,7 +101,17 @@ show $R -e 'invoke "write" H{ "path" "build/tmp/ex18/note.txt" "content" "alpha\
 show $R -e 'invoke "read" H{ "path" "build/tmp/ex18/note.txt" }'
 show $R -e 'invoke "read" H{ "path" "build/tmp/ex18/note.txt" "offset" 2 }'
 
-step "⑮ 模式往返：mode-of 的产物装回去，逐项相等"
+step "⑮ 模式的工具与设定自洽（REQ-67）：装好就能跑 shell，不用设环境变量"
+show $R -e 'invoke "shell" H{ "cmd" "echo 开箱即用" }'
+
+step "⑯ 关掉前置设定：wire 上少一个，invoke 报点名的 60（两行关掉法之二）"
+show $R -e 'flag-set false "allow-shell"
+invoke "shell" H{ "cmd" "echo hi" }'
+printf '   （退出码 %s，期望 60）\n' "$?"
+show env RB_ALLOW_SHELL=0 $R -e 'invoke "shell" H{ "cmd" "echo hi" }'
+printf '   （退出码 %s，期望 60——环境变量压过模式设定）\n' "$?"
+
+step "⑰ 模式往返：mode-of 的产物装回去，逐项相等"
 show $R -e 'mode "cordis"
 mode-of
 mode

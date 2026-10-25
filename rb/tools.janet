@@ -25,6 +25,8 @@
   []
   (tuple ;(sort (keys ((rb/ws) :tools)))))
 
+(var rb/tool-open? nil)   # 前置设定判定（rb/modes.janet 定义后经间接层装上，D-29 / REQ-67）
+
 (defn rb/tool-wire
   "本轮**公示**给模型的工具名（升序元组；纯函数式的呈现层，REQ-65）。
 
@@ -46,7 +48,13 @@
     (var seen false)
     (each n names (when (= n "exit_plan_mode") (set seen true)))
     (when (not seen) (array/push names "exit_plan_mode")))
-  (tuple ;(sort names)))
+  # 前置设定不满足的工具**不上 wire**（REQ-67）：模型看不见就不会去调，
+  # 于是不会在回合中途冒出「工具失败」。注册表里它还在（invoke 会给出清楚的 60）。
+  (tuple
+    ;(sort
+       (filter (fn [n]
+                 (if rb/tool-open? (rb/tool-open? n) true))
+               names))))
 
 (defn rb/tool-defs
   "工具表 → provider 的 `tools` 数组；表空则为 nil（请求里不带该字段）。

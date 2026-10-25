@@ -362,6 +362,20 @@ flag "plan"' 2>/dev/null | tail -1)"
 check_rc "模式：minimal 只有 shell（调 write → 60）" 60 $RAVEL -e \
   'mode "minimal"
 invoke "write" H{ "path" "build/tmp/nope.txt" "content" "x" }'
+# REQ-67：模式的工具与设定自洽——装好就能用，不设任何环境变量
+check "模式：default 的 shell 开箱即用（不需要 RB_ALLOW_SHELL）" '"hi\n"' \
+      "$($RAVEL -e 'invoke "shell" H{ "cmd" "echo hi" }' 2>/dev/null | tail -1)"
+check "模式：--modes 把前置设定印出来" "yes" \
+      "$($RAVEL --modes 2>/dev/null | grep -q 'allow-shell=on' && echo yes || echo no)"
+check_rc "模式：关掉 allow-shell 后 shell → 60" 60 $RAVEL -e \
+  'flag-set false "allow-shell"
+invoke "shell" H{ "cmd" "echo hi" }'
+$RAVEL -e 'flag-set false "allow-shell"
+invoke "shell" H{ "cmd" "echo hi" }' >/tmp/rb-e2e-out 2>&1
+check "模式：关掉后的报错点名是哪个设定" "yes" \
+      "$(grep -q 'allow-shell' /tmp/rb-e2e-out && echo yes || echo no)"
+check_rc "模式：RB_ALLOW_SHELL=0 压过工作区设定 → 60" 60 \
+      env RB_ALLOW_SHELL=0 $RAVEL -e 'invoke "shell" H{ "cmd" "echo hi" }'
 
 check_rc "core-only：--presets 缺能力 → 60" 60 \
       build/janet -e '(each f (parse-all (slurp "build/core-only/rb-bundle.janet")) (eval f (curenv)))

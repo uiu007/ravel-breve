@@ -10,7 +10,8 @@
 #
 # 安全（D-60 + D-61）：
 #   - 三个文件工具一律先过 `cap/fs-check`（沙箱根 = RB_SANDBOX 或当前目录）。
-#   - `shell` **默认关闭**：需要 RB_ALLOW_SHELL=1 才跑（一句 sh -c 等于绕过沙箱）。
+#   - `shell` 需要一个**前置设定** `allow-shell`（REQ-67）：由模式声明，缺省开；
+#     `flag-set false "allow-shell"` 或 `RB_ALLOW_SHELL=0` 关掉它。
 
 # ---- 小工具 ---------------------------------------------------------------
 
@@ -244,13 +245,14 @@
 
 (defn cap/tool-shell
   "shell：{ cmd } —— 跑一句 `sh -c`，返回 stdout（+ stderr）。
-   默认关闭：RB_ALLOW_SHELL=1 才执行（D-61：它等价于绕过文件沙箱）。"
+   需要前置设定 `allow-shell`（模式声明，缺省开；REQ-67）：一句 sh -c 等于绕过文件沙箱，
+   所以它有自己的开关，而不是跟文件工具共用沙箱。"
   []
   (def args (rb/pop))
   (def cmd (cap/tool-require args "cmd"))
-  (def allow (os/getenv "RB_ALLOW_SHELL"))
-  (when (not (or (= allow "1") (= allow "yes") (= allow "true")))
-    (error "shell 默认关闭：需要 RB_ALLOW_SHELL=1（它等价于绕过文件沙箱，D-61）"))
+  (when (not (rb/flag-on? "allow-shell"))
+    (error (string "shell 已被关掉：allow-shell 设定为 false（它等价于绕过文件沙箱，D-61）；"
+                   "打开：flag-set true \"allow-shell\"，或置 RB_ALLOW_SHELL=1")))
   # 要**捕获**输出：os/execute 会把子进程 stdio 直接接给本进程（janet 1.42 的 :p 只是查 PATH），
   # 所以这里自己开一根管道（os/spawn + 读完再 wait）。
   (def tmp (cap/tool-tmp-file))
@@ -278,7 +280,7 @@
             :fn cap/tool-grep}
     "glob" @{:desc "找文件：参数 { pattern, dir? }，支持 * / ? / **，一行一个路径。"
             :fn cap/tool-glob}
-    "shell" @{:desc "跑命令：参数 { cmd }，返回 stdout；默认关闭（需 RB_ALLOW_SHELL=1）。"
+    "shell" @{:desc "跑命令：参数 { cmd }，返回 stdout；需要 allow-shell 设定（怕绕过沙箱时可关）。"
              :fn cap/tool-shell}})
 
 (defn cap/tools-default
@@ -292,5 +294,17 @@
   (eachp [n d] cap/tools-built (put tools n d))
   tools)
 
+(def cap/tools-gates
+  "工具的前置设定：这个工具需要一个开关生效（REQ-67）。
+   目前只有 shell——其余文件工具靠 REQ-53 的沙箱约束，不需要开关。
+   模式声明了带前置设定的工具，就该把设定一起带上（`--modes` 会印出来）。"
+  @{"shell" "allow-shell"})
+
+(defn cap/tools-gate-table
+  "前置设定表的一份拷贝（能力键 `:tools/gates`）。"
+  []
+  (table/clone cap/tools-gates))
+
+(rb/cap-put :tools/gates cap/tools-gate-table)
 (rb/cap-put :tools/install cap/tools-install!)
 (rb/cap-put :tools/defaults cap/tools-default)

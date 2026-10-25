@@ -65,7 +65,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0m · janet 1.42.1
+ravel breve 1.0n · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -191,7 +191,7 @@ show'
 | 差别 | 做法 |
 |---|---|
 | 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
-| 必须自称客户端 | `User-Agent: ravel-breve/1.0m`（**不许**用通用 SDK 名）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0n`（**不许**用通用 SDK 名）|
 | 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
 
 另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
@@ -1253,6 +1253,10 @@ $ RB_LLM=mock ./bin/ravel -e 'modes'
 | `minimal` | 只有 `shell` | **就一句** "You are a helpful software engineer assistant." | `minimal.patch.yml` |
 | `cordis` | 六个默认工具 + `plugin` | `standard` + 「你可以修改自己」 | `cordis.patch.yml` |
 
+每个模式还带**设定**（`--modes` 会印出来）：目前只有 `allow-shell`，
+`shell` 靠它——声明了 `shell` 的模式一并把它带上（`设定：allow-shell=on`），于是"装好就能用"，
+而不是让人再去设环境变量（§14.5.4 / REQ-67）。
+
 > **不复制**：`web`（核心不含网络，REQ-37）、`jobs` / `schedule`（`shell` 已够）、
 > `subagent`（本方言的 `agent` / `send` 就是语言级子代理）、`todo`（栈与会话已能表达）、
 > `present` / `plugin-market`（没有对应基础设施）。
@@ -1344,7 +1348,37 @@ false
 - 不在 plan 模式时调 `exit_plan_mode` → `60`。
 - 进 plan **不换模式名、不换工具集、不换钩子**——这正是"正交"的意思。
 
-### 14.5.4 历史标记：第几轮、从哪来、在哪个模式下
+### 14.5.4 模式的设定：工具与设定必须自洽（REQ-67）
+
+v1.0m 复刻了 dsh 四个预置，却漏了预置带的**设定**：`default` 声明了 `shell`，
+而 `shell` 那时要 `RB_ALLOW_SHELL=1`——于是在缺省模式里，模型第一次调 `shell` 就在回合中途失败：
+
+```
+ravel: @RoundDone 失败：流失败：工具失败：shell：shell 默认关闭：需要 RB_ALLOW_SHELL=1（…）
+```
+
+"装好就能用"被破坏成"看得见却一调就失败"。v1.0n 把这件事写成三条：
+
+- **设定属于模式**：能力层声明「工具 → 前置设定」（能力键 `:tools/gates`，当前 `shell → allow-shell`）；
+  模式声明了带前置设定的工具，就必须把开关一起声明。五个预制模式一律 `allow-shell = true`，
+  所以**不切模式也是配好的**。
+- **设定不满足的工具不上 wire**：模型看不见就不会在回合中途撞墙；注册表里它还在，
+  `invoke` 给出点名到设定的 `60`。
+- **可查、可关**：`--modes` 印设定；关掉一行 `flag-set false "allow-shell"`
+  （或 `RB_ALLOW_SHELL=0`，环境变量优先）。
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'invoke "shell" H{ "cmd" "echo hi" }'
+"hi\n"
+$ RB_LLM=mock ./bin/ravel --modes
+  default    工具：edit glob grep read shell write
+             设定：allow-shell=on
+```
+
+> 为什么不全交给环境变量：环境变量是**每台机器**的，工具清单是**每个模式**的。
+> 后者才是"这个模式装了什么就该能用什么"的表达；环境变量只当显式覆盖（`RB_ALLOW_SHELL=0` 压过关）。
+
+### 14.5.5 历史标记：第几轮、从哪来、在哪个模式下
 
 Utter 上默认打三个标记，**全部可关**：
 
@@ -1402,7 +1436,7 @@ session'
   provider 看不到本方言的内部记号。
 - `flag` 读开关，未定义 → `nil`；`flag-set` 的值必须是布尔，否则 `31`。
 
-### 14.5.4 把自己的钩子收成模式
+### 14.5.6 把自己的钩子收成模式
 
 `mode-of` 取的是**当前工作区**（包括你自己 `@on` 的钩子）：
 
@@ -1446,7 +1480,7 @@ $ RB_LLM=mock ./bin/ravel -e 'invoke "glob" H{ "pattern" "src/*.c" }'
 | `edit` | `{ path, old, new }` | 把 `old` 的所有出现换成 `new`（**字面量**）；一处没找到 → `60` |
 | `grep` | `{ pattern, path? }` | 逐行 `path:行号: 文本`（字面量，最多 200 条）|
 | `glob` | `{ pattern, dir? }` | `*` / `?` 段内、`**` 任意层；一行一个路径（最多 200 条）|
-| `shell` | `{ cmd }` | `sh -c` 的 stdout；非零退出附 `[退出码 N]`；**默认关闭** |
+| `shell` | `{ cmd }` | `sh -c` 的 stdout；非零退出附 `[退出码 N]`；需要设定 `allow-shell`（缺省开）|
 
 ```
 $ RB_LLM=mock ./bin/ravel -e 'invoke "grep" H{ "pattern" "beta" "path" "build/tmp/g.txt" }'
@@ -1457,13 +1491,17 @@ $ RB_LLM=mock ./bin/ravel -e 'invoke "edit" H{ "path" "build/tmp/g.txt" "old" "b
 
 - 五个文件工具都守 **D-60 的沙箱**（根 = 当前目录）：越界 → `60`（工具本体失败）。
 - `grep` / `glob` 是**字面量/通配**，不是正则：`edit` 的 `old` 抄错一个字就会报「找不到」。
-- `shell` 默认关闭，要显式开：
+- `shell` 有自己的**前置设定** `allow-shell`（§14.5.4）：它随模式一起来，所以缺省就能用；
+  一句 `sh -c` 等于绕过文件沙箱，所以关掉它只需要一行：
 
 ```
 $ RB_LLM=mock ./bin/ravel -e 'invoke "shell" H{ "cmd" "ls src" }'
-ravel: 工具失败：shell：shell 默认关闭：需要 RB_ALLOW_SHELL=1（…）    # 60
-$ RB_ALLOW_SHELL=1 RB_LLM=mock ./bin/ravel -e 'invoke "shell" H{ "cmd" "ls src" }'
 "main.c\n"
+$ RB_LLM=mock ./bin/ravel -e 'flag-set false "allow-shell"
+invoke "shell" H{ "cmd" "ls src" }'
+ravel: 工具失败：shell：shell 已被关掉：allow-shell 设定为 false（…）    # 60
+$ RB_ALLOW_SHELL=0 RB_LLM=mock ./bin/ravel -e 'invoke "shell" H{ "cmd" "ls src" }'
+ravel: 工具失败：shell：shell 已被关掉：…                                # 60（环境变量压过模式设定）
 ```
 
 - 它们**不是方言词**：在脚本里写 `edit` 是 20（未知的词），要么 `invoke`，要么让模型调用。
@@ -1753,7 +1791,7 @@ $ tools/oc-setup.sh --local             # 不想写家目录：配置写 ./.rave
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0m · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0n · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -1991,6 +2029,7 @@ v1.0m 加 dsh 四个预置的复刻、`wire` 呈现层与正交的 plan）。
 | `examples/15-headers-models.breve` | 自定义请求头（`headers`）、模型列表（`llm-models`）与自动配置（`llm-auto`）|
 | `examples/16-plugins.sh` | 插件：`plug` / `plugins` / `unplug` 的装-用-卸全程 |
 | `examples/17-presets.sh` | 配置预设：`--preset` / `RB_PRESET` / 用户配置文件 / `llm-import` / `llm-export` |
+| `examples/18-modes.sh` | 处理流程模式：五个预置、wire（注册 ≠ 公示）、plan 正交、模式设定（REQ-67）|
 | `examples/run-all.sh` | 一次跑完上面全部 |
 
 ```

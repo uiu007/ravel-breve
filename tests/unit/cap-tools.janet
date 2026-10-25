@@ -82,14 +82,26 @@
                                      " \"path\" \"" p "\" }")))
     (protect (os/rm p))))
 
-(deftest "D-61：shell 默认关闭；RB_ALLOW_SHELL=1 才跑并捕获 stdout"
+(deftest "D-61 / REQ-67：shell 的授权来自模式设定——装好就能用，一行能关掉"
   (fn []
     (def env (new-ws))
-    (is= 60 (run-in-exit env "invoke \"shell\" H{ \"cmd\" \"echo hi\" }"))
-    (os/setenv "RB_ALLOW_SHELL" "1")
+    # 缺省就是 default 模式：设定随模式来，不该让人先去设环境变量
     (is= "hi\n" (eval-top-in env "invoke \"shell\" H{ \"cmd\" \"echo hi\" }"))
     (def bad (eval-top-in env "invoke \"shell\" H{ \"cmd\" \"echo oops >&2 && exit 3\" }"))
     (is (string/find "[退出码 3]" bad))
+    # 关掉：开关 → 60，且 wire 上不再公示（模型看不见，就不会在回合中途撞墙）
+    (is= 0 (run-in-exit env "flag-set false \"allow-shell\""))
+    (is= 60 (run-in-exit env "invoke \"shell\" H{ \"cmd\" \"echo hi\" }"))
+    (is= (tup ["edit" "glob" "grep" "read" "write"])
+         (tup (val-in env rb/tool-wire)) "关掉后 wire 里没有 shell")
+    # 环境变量是显式覆盖，两个方向都行
+    (os/setenv "RB_ALLOW_SHELL" "1")
+    (is= "hi\n" (eval-top-in env "invoke \"shell\" H{ \"cmd\" \"echo hi\" }")
+        "RB_ALLOW_SHELL=1 压过工作区开关")
+    (is= 0 (run-in-exit env "flag-set true \"allow-shell\""))
+    (os/setenv "RB_ALLOW_SHELL" "0")
+    (is= 60 (run-in-exit env "invoke \"shell\" H{ \"cmd\" \"echo hi\" }")
+        "RB_ALLOW_SHELL=0 压过工作区开关")
     (os/setenv "RB_ALLOW_SHELL" nil)))
 
 (deftest "D-61：file 工具也守沙箱（越界 → 60）"

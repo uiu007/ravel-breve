@@ -215,3 +215,31 @@
       (def env (new-ws))
       (is= 0 (run-in-exit env (string "mode \"" name "\"")) name)
       (is= (rb/mode-get name) (val-in env rb/mode-capture) (string name " 往返相等")))))
+
+(deftest "REQ-67：模式的工具与设定自洽（声明的工具装好就能用）"
+  (fn []
+    (def gates (val-in (new-ws) rb/tool-gates))
+    (each name ["default" "standard" "ptc" "minimal" "cordis"]
+      (def m (rb/mode-get name))
+      (eachp [tool _] (m :tools)
+        (def g (get gates tool))
+        (when g
+          (is= true (get (m :flags) g)
+               (string name " 声明了 " tool "，就得把设定 " g " 一起带上")))))
+    # 每个模式都真的能跑 shell（不设任何环境变量）
+    (each name ["default" "standard" "ptc" "minimal" "cordis"]
+      (def env (new-ws))
+      (is= 0 (run-in-exit env (string "mode \"" name "\"")) name)
+      (is= "ok\n" (eval-top-in env "invoke \"shell\" H{ \"cmd\" \"echo ok\" }")
+          (string name " 的 shell 可用")))))
+
+(deftest "REQ-67：前置设定不满足的工具不上 wire，invoke 报 60 且说得清"
+  (fn []
+    (def env (new-ws))
+    (is= 0 (run-in-exit env "flag-set false \"allow-shell\""))
+    (is= (tup ["edit" "glob" "grep" "read" "write"])
+         (tup (val-in env rb/tool-wire)))
+    (is= 5 (length (val-in env rb/tool-defs)) "defs 跟着 wire 走（同一个呈现层）")
+    (is (not (nil? (val-in env (fn [] (rb/tool-get "shell"))))) "注册表里还在")
+    (def r (eval-top-in env "invoke \"shell\" H{ \"cmd\" \"echo hi\" }"))
+    (is (string/find "allow-shell" (r 1)) "错误里点名是哪个设定")))

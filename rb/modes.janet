@@ -63,6 +63,37 @@
   [k]
   (get ((rb/ws) :flags) k))
 
+(defn rb/flag-env-name
+  "开关名 → 环境变量名：`allow-shell` → `RB_ALLOW_SHELL`。
+   janet 1.42 没有 `string/upper`，这里手工做大写（只影响 ASCII，足够）。"
+  [k]
+  (def out @"RB_")
+  (each b (string/bytes k)
+    (cond
+      (and (>= b 97) (<= b 122)) (buffer/push-byte out (- b 32))
+      (= b 45) (buffer/push-byte out 95)
+      true (buffer/push-byte out b)))
+  (string out))
+
+(defn rb/flag-env
+  "开关的同名环境变量覆盖（`allow-shell` → `RB_ALLOW_SHELL`）：
+   true / false / nil（没设）。环境变量压过工作区设定——它的用途是
+   「这台机器上无论如何都……」；模式设定则管缺省（REQ-67）。"
+  [k]
+  (def v (os/getenv (rb/flag-env-name k)))
+  (cond
+    (nil? v) nil
+    (= v "") nil            # 空串 = 没设（`RB_ALLOW_SHELL=` 不该等于「关」）
+    (or (= v "0") (= v "no") (= v "false")) false
+    (or (= v "1") (= v "yes") (= v "true")) true
+    true))   # 其它非空值一律当「开」（RB_ALLOW_SHELL=whatever 的直觉）
+
+(defn rb/flag-on?
+  "开关此刻是否生效：环境变量优先，其次工作区开关（`nil` = 没定义 = 关）。"
+  [k]
+  (def env (rb/flag-env k))
+  (if (nil? env) (= true (rb/flag-get k)) env))
+
 (defn rb/flag-set!
   "Value Key --；写一个开关（值必须是布尔，否则 31）。"
   [k v]
@@ -139,7 +170,7 @@
     "You are a coding agent powered by the {{model}} model.\n"
     "工作目录：{{cwd}}。\n"
     "先用 read / glob / grep 看清楚再改；改动要小，风格跟随周围代码。"
-    "shell 默认关闭（需 RB_ALLOW_SHELL=1），能不用就不用。"))
+    "shell 可用，但它绕过文件沙箱，能不用就不用。"))
 
 (def rb/minimal-system
   # dsh 的 minimal 用 `complete: true` + `includeRuntimeContext: false`：
@@ -214,6 +245,19 @@
   (def f (rb/cap-get :tools/defaults))
   (if f (f) @{}))
 
+(defn rb/tool-gates
+  "能力层提供的「工具 → 前置开关」表（`--core-only` 下为空表）。
+   目前只有 shell，前置设定是 allow-shell（REQ-67）。"
+  []
+  (def f (rb/cap-get :tools/gates))
+  (if f (f) @{}))
+
+(defn rb/gate-open?
+  "这个工具此刻能不能用：没有前置设定 → 能；有 → 看那个开关是否生效（REQ-67）。"
+  [name]
+  (def g (get (rb/tool-gates) name))
+  (if g (rb/flag-on? g) true))
+
 (defn rb/mode-tools-of
   "从默认工具表里挑出若干名字（模式只装自己需要的工具；缺的名字自动跳过）。"
   [names]
@@ -231,7 +275,7 @@
     (rb/mode-new
       "default"
       "缺省：收尾钩子把流合并进会话，工具调用自动执行（REQ-18 / REQ-48）"
-      nil
+      @{"allow-shell" true}
       (rb/ws-default-hooks)
       nil
       (rb/cap-default-tools))
@@ -240,7 +284,7 @@
     (rb/mode-new
       "ptc"
       "dsh preset ptc 的复刻：wire 上只有 eval（呈现层），程序里 invoke 任何工具"
-      nil
+      @{"allow-shell" true}
       @{"@RoundDone" @[rb/default-round-done-thunk]
         "@Toolcall" @[rb/default-toolcall-thunk]}
       rb/ptc-system
@@ -254,7 +298,7 @@
     (rb/mode-new
       "standard"
       "dsh preset standard 的复刻：编码 agent 的人格 + 完整文件工具 + shell"
-      nil
+      @{"allow-shell" true}
       (rb/ws-default-hooks)
       rb/standard-system
       (rb/cap-default-tools))
@@ -263,7 +307,7 @@
     (rb/mode-new
       "minimal"
       "dsh preset minimal 的复刻：只有 shell；人格是完整系统提示，不带运行时上下文"
-      nil
+      @{"allow-shell" true}
       (rb/ws-default-hooks)
       rb/minimal-system
       (rb/mode-tools-of @["shell"]))
@@ -272,7 +316,7 @@
     (rb/mode-new
       "cordis"
       "dsh preset cordis 的复刻：standard + 改自己（plugin 工具装卸插件）"
-      nil
+      @{"allow-shell" true}
       (rb/ws-default-hooks)
       rb/cordis-system
       (merge (table/clone (rb/cap-default-tools))
@@ -316,6 +360,13 @@
   (each n (ws :mode-tools) (put tools n nil))
   (eachp [n d] (m :tools) (put tools n d))
   (put ws :mode-tools (tuple ;(sort (keys (m :tools)))))
+  # 「模式的工具与设定必须自洽」（REQ-67）：声明了带前置设定的工具，却没把它打开，
+  # 就是"看得见却一调就失败"。这里只**告警**（用户可能正想临时关掉），并把话说清。
+  (eachp [n _] (m :tools)
+    (def g (get (rb/tool-gates) n))
+    (when (and g (not (get (m :flags) g)))
+      (eprintf "ravel: 警告：模式 %s 声明了工具 %s，但设定里没有 %s → 该工具本轮不会公示，invoke 会 60（REQ-67）"
+               (m :name) n g)))
   m)
 
 (defn rb/mode-capture
@@ -399,3 +450,6 @@
   p)
 
 (set rb/mode-inject-prompt rb/mode-inject-prompt!)
+
+# 装载序：`rb/tools.janet`（13）先于本文件（29），所以呈现层经间接层取这个判定（D-29）。
+(set rb/tool-open? rb/gate-open?)

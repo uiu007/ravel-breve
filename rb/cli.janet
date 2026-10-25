@@ -14,8 +14,8 @@
 # 保留名表**不得**与词表重名（REQ-09：一个名字只有一种词性）——`watch` 是方言词
 # （L9），所以它不在这里。
 
-(def rb/version "1.0m")
-(def rb/version-string "ravel breve 1.0m · janet 1.42.1")
+(def rb/version "1.0n")
+(def rb/version-string "ravel breve 1.0n · janet 1.42.1")
 
 # REQ-25：保留的元命令名（无前缀裸词，均不是方言词）
 (def rb/meta-commands
@@ -350,6 +350,14 @@
     (def m (ms n))
     (def tools (sort (keys (or (m :tools) @{}))))
     (printf "  %-10s 工具：%s" n (if (empty? tools) "—" (string/join tools " ")))
+    # REQ-67：声明的工具需要什么前置设定，就印出来（"装了就配好"要看得见才可信）
+    (def sets @[])
+    (eachp [tool gate] (rb/tool-gates)
+      (when (and (get (or (m :tools) @{}) tool)
+                 (not (nil? (get (or (m :flags) @{}) gate))))
+        (array/push sets (string gate "=" (if (get (m :flags) gate) "on" "off")))))
+    (when (not (empty? sets))
+      (printf "  %-10s 设定：%s" "" (string/join sets " ")))
     (printf "  %-10s %s" "" (or (m :doc) "")))
   (printf "用法：mode \"<名字>\"（在方言里切换；`modes` 词也一样能列名字）")
   0)

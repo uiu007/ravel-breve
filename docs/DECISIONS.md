@@ -1132,3 +1132,59 @@ pty 手测见 `docs/CHK-7.md`。
 `tests/conformance/req-52-modes.janet`（wire 只有 `eval` 而工具仍注册着）；
 `tests/e2e/cli.sh`（`--modes` 五名字、ptc 程序里 `invoke glob` 回真实结果、minimal 调 `write` → 60、
 `enter-plan` / `exit_plan_mode` / `exit-plan` 三个开关断言）。规格：v1.0m §4.13 与附录 S。
+
+---
+
+## D-73 工具的前置设定随模式来：「装好就能用」是规格，不是运气（v1.0n / REQ-67）
+
+**症状（用户报的，原话）。**
+
+```
+ravel: @RoundDone 失败：流失败：工具失败：shell：shell 默认关闭：需要 RB_ALLOW_SHELL=1（它等价于绕过文件沙箱，D-61）
+```
+
+缺省模式下模型第一次调 `shell` 就撞墙。用户判词：**「默认模式当然要有匹配它的初始设定，
+而不是要手动操作」**。
+
+**根因不是 `shell` 的判断写错，而是"工具"与"工具的设定"分居两处。**
+v1.0m 复刻 dsh 预置时只抄了**工具清单**（`:tools` / `:wire` / 提示），
+忘了预置同时决定**这些工具能不能用**。`default` 说"我有 `shell`"，
+`cap/tool-shell` 说"没环境变量就不给跑"——两边各自都"对"，合起来是"看得见却一调就失败"。
+
+**处置（三条，逐条对应一个失败面）。**
+
+1. **设定归模式声明**。能力层新增能力键 `:tools/gates` = `{"shell" "allow-shell"}`
+   （`cap/tools.janet`）；模式表 `:flags` 就是设定面，五个预制模式一律 `@{"allow-shell" true}`；
+   `rb/flag-defaults` 里也显式写出 `"allow-shell" true`（**"不切模式"也是配好的**）。
+   判定函数 `rb/flag-on?`：环境变量（`allow-shell` → `RB_ALLOW_SHELL`）优先，其次工作区开关。
+2. **设定不满足的工具不上 wire**。`rb/tool-wire` 末尾多一道过滤（`rb/tool-open?`，经间接层
+   `(set rb/tool-open? rb/gate-open?)`——`rb/tools.janet` 装载早于 `rb/modes.janet`，D-29）。
+   于是模型看不见它，**不会在回合中途冒出 `@RoundDone 失败`**；注册表里它还在，
+   `invoke` 给出点名到设定的 `60`（「allow-shell 设定为 false …… 打开：flag-set true "allow-shell"」）。
+3. **可查、可关**。`--modes` 对每个模式印 `设定：allow-shell=on`；关掉一行
+   `flag-set false "allow-shell"`，或 `RB_ALLOW_SHELL=0`（压过模式设定）。
+   `mode` 装入"声明了工具却没带设定"的模式时向 stderr 告警（不改退出码）。
+
+**为什么不选另外两条路。**
+
+- **不选「从工具表里删掉 `shell`」**：那只是把"默认不可用"换个写法，用户要的是能用；
+  而且"缺能力"和"缺授权"是两回事，混在一起会让诊断失准。
+- **不选「只看环境变量」**：环境变量是**每台机器**的，工具清单是**每个模式**的。
+  只有后者能表达"这个模式装了什么就该能用什么"；环境变量退居显式覆盖（两个方向都能压）。
+
+**取舍要讲明**：`shell` 因此**缺省可用**（一句 `sh -c` 等于绕过文件沙箱）。
+关掉它只需一行，`--modes` 会把它印出来，`RB_ALLOW_SHELL=0` 可以写进 CI/服务器环境。
+文件工具的沙箱（REQ-53 / D-60）**一点没变**。
+
+**踩到的坑。**
+
+- Janet 1.42 没有 `string/upper` → 环境变量名手工大写（`rb/flag-env-name`，只处理 ASCII）。
+- `RB_ALLOW_SHELL=`（空串）最初被判成「关」，导致测试环境里被 `export` 出空值的 shell 全红；
+  改为**空串 = 没设**。
+- `eval-top-in` 在出错时返回 `[:__error__ "…"]` 元组，`string/find` 直接吃它会抛
+  「expected string … got tuple」——取第二项再断言。
+
+**验收。** `tests/unit/modes.janet`（「模式的工具与设定自洽」逐模式断言 + 「前置设定不满足的工具不上 wire」）；
+`tests/unit/cap-tools.janet`（缺省可用、开关关掉 → 60、`wire` 少一个、环境变量两向压过开关）；
+`tests/e2e/cli.sh`（default 的 shell 开箱即用 / `--modes` 印设定 / 关掉 → 60 / 报错点名 / `RB_ALLOW_SHELL=0` → 60）；
+`examples/18-modes.sh` ⑮⑯。规格：v1.0n §4.14 与附录 T。

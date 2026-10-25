@@ -1,8 +1,8 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0m.md`**（模式的复刻）；
-`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0l.md` 为历史原文。
-状态：**M14**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+依据规格：**`ravel-breve-spec-v1.0n.md`**（模式的设定）；
+`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0m.md` 为历史原文。
+状态：**M15**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
 > v1.0d 新增 **REQ-47…REQ-51**（见文末）；**v1.0e 不新增 REQ**（只把 SF-14…SF-35 冻结，见其附录 I）；
@@ -13,6 +13,8 @@
 > **v1.0j 新增 REQ-60 / REQ-61**（插件装载卸载、插件编写 skills 的分层，见其 §4.17 与附录 O）；
 > **v1.0k 新增 REQ-62 / REQ-63**（配置预设的导入导出、启动装载，见其 §4.18 与附录 P）；
 > **v1.0l 新增 REQ-64**（预制的可发现性，见其 §4.19 与附录 Q）；
+> **v1.0n 新增 REQ-67**（工具的前置设定随模式来、设定不满足的工具不上 wire，见其 §4.14 与附录 T），
+> 并随之修订 REQ-54 的 `shell` 条款；依据规格 `ravel-breve-spec-v1.0n.md`，状态 **M15**。
 > **v1.0m 新增 REQ-65 / REQ-66**（注册与公示分离、正交 plan，见其 §4.13 与附录 S），
 > 并按 D-72 **修订 REQ-52**（`ptc` 由「只留一个工具」改为「全都注册、只公示 `eval`」）。
 
@@ -344,3 +346,10 @@ D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
 | REQ-52（修订）| `ptc` 的表述由「只保留一个工具 `eval`」改为「**wire 上只有一个** `eval`，工具全都注册着」；模式表加 `:wire` | ✅ | `conformance/req-52-modes.janet`、`unit/modes.janet` |
 
 决策记录：D-72（复刻 dsh 四预设 + 呈现层与注册分离 + plan 正交）。
+
+## v1.0n 新增 REQ（67）+ REQ-54 修订
+
+| REQ | 内容 | 测试 |
+|---|---|---|
+| REQ-67 | 工具的前置设定（`:tools/gates`）随模式声明，缺省配好；设定不满足不上 wire；`--modes` 印设定；装载期告警 | `unit/modes.janet`（「模式的工具与设定自洽」「前置设定不满足的工具不上 wire」）、`unit/cap-tools.janet`（开关两向 + 环境变量覆写）、`e2e/cli.sh`（default 的 shell 开箱即用 / 关掉 → 60 / `RB_ALLOW_SHELL=0` → 60 / `--modes` 印设定）|
+| REQ-54（修订）| `shell` 的前置设定是 `allow-shell`（缺省 `true`，随模式来）；关掉后 `invoke` → 60 且不上 wire | 同上 |

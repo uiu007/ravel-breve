@@ -635,3 +635,39 @@ fact 5                     # 120
   - 判据仍然**可见**：`rb/store-log-ratio` 照旧给出 `:log` / `:snap` / `:ratio`，只是触发多一个下限。
 - **验收**：`tests/unit/store.janet`（0.5 边界 + 512 下限）、
   `tests/conformance/req-21-compact.janet`（判据接线 + 小工作区三轮不 compact）。
+
+## D-59 处理流程显式化：模式 ⇄ 钩子（v1.0f 的 REQ-52）
+
+- **问题**：「一轮请求怎么被处理」过去只存在于**钩子表的当前状态**里——读者要自己 `show` 一张
+  八事件表、再推断"谁在跑、谁被 `@off` 了、有没有 system 提示、哪些工具在场"。这与 spec 的
+  「复杂度可见」原则不符；也没有"预设流程"可一键切换（例如只让模型交程序、不逐步发 tool_call）。
+- **决定**：把这份状态**显式化**为数据，并允许**双向**转换：
+  - **模式** = `@{:kind :mode :name :doc :flags :hooks :prompt :tools}`；`hooks` 形状规范：
+    **8 个事件全在**（未声明 = 空数组），于是"没有钩子"与"没写这个事件"不会混淆。
+  - `mode`（`Name|Mode --`）= 模式 → 工作区：整体替换钩子表、写 `:flags`、写 `:mode-prompt`、
+    **撤掉所有预制模式声明过的工具**再装本模式声明的工具（模式之间不互相污染）。
+    未知名字 → 20；非模式表 → 31。
+  - `mode-of`（`-- Mode`）= 工作区 → 模式；与 `mode` **互逆**。为了能逐项 `deep=` 比较：
+    预制 `default` 的钩子对象与 `ws-new` 用的是**同一批函数对象**；`mode-of` 的 `:doc`
+    在有同名预制时沿用预制文档（否则文档会破坏往返相等）。
+  - 自省名词（只读）：`mode-name` / `mode-prompt` / `mode-tools`。**没有**给模式表加
+    "关键字字面量"或 `at :name` 之类通道——方言没有关键字字面量（SF 已冻结），
+    所以字段访问一律走名词。
+- **历史标记（开关缺省全开）**：`:turn` / `:from` / `:mode` 打在 Utter 上。
+  - 只用三个开关名（`history-turn` / `history-origin` / `history-mode`），`flag` / `flag-set` 读写。
+  - **标记不进请求**：请求由 `rb/messages-of` 重建，只含 `role` / `content` / `tool_calls`
+    等协议字段——否则 provider 会看到本方言的内部记号。
+- **PTC（预制模式 `ptc`）**：仿 DeepSeek harness 的 Programmatic Tool Calling。
+  - 只留**一个**工具 `eval`；模型把它要做的多步编排写成**一段 ravel 程序**（程序里 `invoke`），
+    `eval` 跑完返回**栈顶**作为工具结果 → 多步编排不再消耗模型回合。
+  - 模式的系统提示**只进请求**（前置换一条 `role:"system"`），**不进会话历史**：
+    否则历史被说明文字污染，切模式后旧提示还留着。
+  - `eval` 内部求值走 `nested?`：**不做一轮收尾**，否则会在 `@Toolcall` 钩子里递归触发
+    `@RoundDone`（顺带把中间量并进会话）。
+  - 程序失败 → 60（编排级），并保留 D-55（失败无栈效果）。
+- **为什么不另起执行机制**：模式只是**钩子集合的显式表示**；`@off @Toolcall` + 手动
+  `invoke`/`append`/`resend` 照样可用。因此"模式 ⇄ 钩子"必须能来回，而不是两套并行语义。
+- **验收**：`tests/unit/modes.janet`（往返 `deep=`、开关、PTC 工具、提示只进请求）、
+  `tests/conformance/req-52-modes.janet`（词层往返、ptc 一轮只一次工具调用、
+  程序内 `invoke` 串多工具、失败 60、标记可关）；`tests/e2e/cli.sh` 的 watch/session
+  期望同步带上标记。

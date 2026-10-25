@@ -1150,6 +1150,151 @@ map [ Role ]'
 
 ---
 
+## 14.5 处理流程：模式 ⇄ 钩子（PTC）
+
+「一轮请求怎么被处理」在这里是**一份数据**（模式），不是隐式的实现细节。
+模式和**工作区现状**可以来回转换：`mode` 装进去，`mode-of` 取出来。
+
+```
+modes
+```
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'modes'
+("default" "ptc")
+```
+
+模式表的形状（`mode-of` 的产物）：`@{:kind :mode :name :doc :flags :hooks :prompt :tools}`，
+其中 `:hooks` **8 个事件全在**（未声明 = 空数组），于是"没挂钩子"和"没写这个事件"不会混淆。
+
+### 14.5.1 切到 PTC 模式
+
+```
+mode "ptc"
+mode-of
+mode-tools
+```
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'mode "ptc"
+mode-of
+mode-tools'
+("eval")
+```
+
+- `ptc` **只留一个工具** `eval`：模型不再逐步发 `tool_call`，而是把它要做的多步编排写成
+  **一段 ravel 程序**，交给 `eval` 跑；返回的**栈顶**就是工具结果。
+- 切模式会**撤掉所有预制模式声明过的工具**（避免模式互相污染）；用户自己的 `deftool` 不受影响。
+- `ptc` 还带一段系统提示，它**只进请求**（前置一条 `role:"system"`），**不进会话历史**——
+  否则历史会被说明文字污染，切回 `default` 后旧提示还留着。
+
+### 14.5.2 完整例程：程序内串多个工具
+
+```
+deftool "add2" "把参数 a 加 2" [ at "a"
+to-int
++ 2 ]
+mode "ptc"
+agent "c" { }
+dup
+send say "用程序算 40 加 2"
+drain
+pop
+session
+map [ Role ]
+```
+
+```
+$ RB_MOCK_TOOL='eval:{"src": "invoke \"add2\" H{ \"a\" 40 }"}' RB_LLM=mock ./bin/ravel examples/12-ptc.breve
+@["user" "assistant" "tool"]
+```
+
+模型只发**一次** `eval`；程序里那句 `invoke "add2" H{ "a" 40 }` 在 `eval` 内部运行。
+真模型下把 `RB_MOCK_TOOL` 去掉即可（`ptc` 的系统提示会告诉它怎么写程序）。
+
+程序失败（栈下溢、词不存在…）→ `60`（编排级），本轮作废，栈回到求值前（D-55）。
+
+### 14.5.3 历史标记：第几轮、从哪来、在哪个模式下
+
+Utter 上默认打三个标记，**全部可关**：
+
+| 开关 | 标记 | 含义 |
+|---|---|---|
+| `history-turn` | `:turn` | 第几轮（agent 内递增）|
+| `history-origin` | `:from` | 产生它的 agent 标签 |
+| `history-mode` | `:mode` | 产生它的处理流程名 |
+
+```
+agent "c" { }
+dup
+send say "hi"
+drain
+pop
+session
+```
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'agent "c" { }
+dup
+send say "hi"
+drain
+pop
+session'
+@[@{:content "hi" :from "c" :mode "default" :role "user" :turn 1}]
+```
+
+关掉其中两个：
+
+```
+flag-set false "history-turn"
+flag-set false "history-origin"
+agent "c" { }
+dup
+send say "hi"
+drain
+pop
+session
+```
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'flag-set false "history-turn"
+flag-set false "history-origin"
+agent "c" { }
+dup
+send say "hi"
+drain
+pop
+session'
+@[@{:content "hi" :mode "default" :role "user"}]
+```
+
+- 标记**不进请求**：`send` 重建的消息只有 `role` / `content` / `tool_calls`，
+  provider 看不到本方言的内部记号。
+- `flag` 读开关，未定义 → `nil`；`flag-set` 的值必须是布尔，否则 `31`。
+
+### 14.5.4 把自己的钩子收成模式
+
+`mode-of` 取的是**当前工作区**（包括你自己 `@on` 的钩子）：
+
+```
+@on @Chunk [ ]
+mode-of
+mode-name
+```
+
+```
+$ RB_LLM=mock ./bin/ravel -e '@on @Chunk [ ]
+mode-of
+mode-name'
+"default"
+```
+
+这份表可以存起来（`to-json` / 写文件），以后 `mode` 装回去——钩子、开关、提示、工具一起回来。
+
+> 注意：`mode` 是**整体替换**钩子表，不是追加。想在某个模式上加观察者，先 `mode` 再 `@on`。
+
+---
+
 ## 15. 前端协议（`--serve`）
 
 一行一条 JSON。裸文本行 = `eval` 的简写；显式请求：
@@ -1275,7 +1420,7 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 | L9 前端 | `watch` `subscribe` `unsubscribe` |
 | provider 配置 | `llm` `llm-get` `llm-set` |
 
-完整栈效应见 `ravel-breve-spec-v1.0e.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`（v1.0e 已把 SF-14…SF-35 冻结）。
+完整栈效应见 `ravel-breve-spec-v1.0f.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`（v1.0e 已把 SF-14…SF-35 冻结；v1.0f 新增 REQ-52 处理流程层）。
 
 ---
 

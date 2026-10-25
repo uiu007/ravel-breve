@@ -58,8 +58,19 @@
   a)
 
 (defn rb/agent-append!
-  "REQ-12：唯一允许的会话变更 —— 追加。"
+  "REQ-12：唯一允许的会话变更 —— 追加。
+   D-59：按工作区的历史标记开关给 Utter 打标（`:turn` 轮次 / `:from` 来源 agent /
+   `:mode` 产生它的模式）；标记只是字段，provider 消息由 `rb/messages-of` 重建，不受影响。"
   [a u]
+  (def fl ((rb/ws) :flags))
+  (when (and (table? u) (table? fl))
+    (def turn (inc (a :turn)))
+    (when (and (fl "history-turn") (nil? (get u :turn)))
+      (put u :turn turn))
+    (when (and (fl "history-origin") (nil? (get u :from)))
+      (put u :from (a :label)))
+    (when (and (fl "history-mode") (nil? (get u :mode)))
+      (put u :mode ((rb/ws) :mode))))
   (array/push (a :session) u)
   (put a :turn (inc (a :turn)))
   a)
@@ -126,7 +137,14 @@
   (when (not (a :live))
     (rb/raise (rb/exit-table :runtime-type)
               (string "agent 已注销：" (a :label))))
-  (def messages (rb/messages-of a))
+  # D-59：模式可以要求一段 system 提示。注入必须发生在取消息**之前**，
+  # 否则本轮的请求里看不到它（装载序走间接层，同 D-29）。
+  (def p (if rb/mode-inject-prompt (rb/mode-inject-prompt a) nil))
+  # 提示只进请求（前置一条 system），不进会话历史（D-59）
+  (def messages (if p
+                  (tuple ;(array/concat @[@{:role "system" :content p}]
+                                        (rb/messages-of a)))
+                  (rb/messages-of a)))
   (when (empty? messages)
     (rb/raise (rb/exit-table :orchestration-base)
               (string "会话为空，无法发起：" (a :label))))

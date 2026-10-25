@@ -43,8 +43,15 @@
     (def a ((ws :agents) 0))
     (rb/agent-append! a @{:role "user" :content "一"})
     (rb/agent-append! a @{:role "assistant" :content "二"})
-    (is= "@{:content \"一\" :role \"user\"}" (rb/stream-next! s))
-    (is= "@{:content \"二\" :role \"assistant\"}" (rb/stream-next! s))
+    # D-59：默认开历史标记，视图条目里能读到轮次与来源
+    (def r1 (rb/stream-next! s))
+    (is (string/find ":content \"一\"" r1) "视图条目带上内容")
+    (is (string/find ":role \"user\"" r1) "视图条目带上角色")
+    (is (string/find ":turn 1" r1) "默认带轮次标记（D-59）")
+    (is (string/find ":from \"c\"" r1) "默认带来源标记（D-59）")
+    (def r2 (rb/stream-next! s))
+    (is (string/find ":content \"二\"" r2) "视图条目带上内容")
+    (is (string/find ":role \"assistant\"" r2) "视图条目带上角色")
     (is= nil (rb/stream-next! s) "取尽 = 暂时没有新条目")
     (is= :open (s :state) "视图流不因取尽而关闭（REQ-08 的 close 留给真流）")))
 
@@ -55,9 +62,9 @@
     (def s (last ((run-in env "watch agent \"c\" { }") :stack)))
     (def a ((ws :agents) 0))
     (rb/agent-append! a @{:role "user" :content "一"})
-    (is= "@{:content \"一\" :role \"user\"}" (rb/stream-next! s))
+    (is (string/find ":content \"一\"" (rb/stream-next! s)) "先吐已有条目")
     (rb/agent-append! a @{:role "assistant" :content "二"})
-    (is= "@{:content \"二\" :role \"assistant\"}" (rb/stream-next! s) "新增条目才出现")))
+    (is (string/find ":content \"二\"" (rb/stream-next! s)) "新增条目才出现")))
 
 (deftest "REQ-28：两个 watch 的游标互不影响"
   (fn []
@@ -71,8 +78,8 @@
     (def s1 (view))
     (def s2 (view))
     (rb/agent-append! a @{:role "user" :content "一"})
-    (is= "@{:content \"一\" :role \"user\"}" (rb/stream-next! s1))
-    (is= "@{:content \"一\" :role \"user\"}" (rb/stream-next! s2) "第二个视图从头开始")))
+    (is (string/find ":content \"一\"" (rb/stream-next! s1)) "第一个视图看到条目")
+    (is (string/find ":content \"一\"" (rb/stream-next! s2)) "第二个视图从头开始")))
 
 (deftest "REQ-28：视图流不会被收尾钩子并回会话"
   (fn []

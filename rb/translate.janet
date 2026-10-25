@@ -113,6 +113,15 @@
     "deftool" "rb/deftool"
     "invoke" "rb/invoke"
     "saysys" "rb/saysys"
+    # 处理流程（模式）与历史标记开关（D-59）
+    "mode" "rb/mode"
+    "modes" "rb/modes"
+    "mode-of" "rb/mode-of"
+    "mode-name" "rb/mode-name"
+    "mode-prompt" "rb/mode-prompt"
+    "mode-tools" "rb/mode-tools"
+    "flag" "rb/flag"
+    "flag-set" "rb/flag-set"
     # provider 配置（D-54）
     "llm" "rb/llm"
     "llm-set" "rb/llm-set"

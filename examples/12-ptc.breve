@@ -1,0 +1,26 @@
+# examples/12-ptc.breve —— 处理流程：PTC 模式（REQ-52 / D-59）
+#
+# 跑法（hermetic）：
+#   RB_MOCK_TOOL='eval:{"src": "invoke \"add2\" H{ \"a\" 40 }"}' \
+#   RB_LLM=mock ./bin/ravel examples/12-ptc.breve
+#
+# 这条例程演示三件事：
+#   ① 工具先注册（`deftool`），再切模式——切模式只撤「预制模式声明过的」工具；
+#   ② `ptc` 模式下模型只发**一次** `eval`，程序里的 `invoke` 串起真正的工具调用；
+#   ③ 历史标记（`:turn` / `:from` / `:mode`）默认就在会话条目上。
+
+deftool "add2" "把参数 a 加 2" [ at "a"
+to-int
++ 2 ]
+
+mode "ptc"
+modes
+show
+
+agent "c" { }
+dup
+send say "用程序算 40 加 2"
+drain
+pop
+session
+map [ Role ]

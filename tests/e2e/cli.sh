@@ -122,7 +122,7 @@ check_rc "REQ-24：watch + send + 再来一条请求" 0 $RAVEL --serve < /tmp/rb
 check_has "REQ-24：求值过程中就有 chunk 推出" '{"n":0,"stream":"c","text":"ab","type":"chunk"}' /tmp/rb-e2e-out
 check_has "REQ-24：close 带 stream 名与 ok" '{"ok":true,"stream":"c","type":"close"}' /tmp/rb-e2e-out
 check_has "REQ-24：watch 视图把新会话条目推成 chunk" \
-      '{"n":0,"stream":"c","text":"@{:content \"hi\" :role \"user\"}","type":"chunk"}' /tmp/rb-e2e-out
+      '{"n":0,"stream":"c","text":"@{:content \"hi\" :from \"c\" :mode \"default\" :role \"user\" :turn 1}","type":"chunk"}' /tmp/rb-e2e-out
 check "REQ-24：推流之后仍继续收请求（id 3 有结果）" \
       '3' \
       "$(grep -o '"id":3' /tmp/rb-e2e-out | head -1 | grep -o '3')"
@@ -171,7 +171,7 @@ check "agent：渲染形态" \
 # 一轮结束时默认钩子才把回复并回会话（REQ-18）→ 用 --serve 跨两行观察
 check_rc "agent：send + 收尾钩子自动合并" 0 bash -c "printf 'agent \"c\" { }\ndup\nsend say \"hi\"\npop\nsession\n' | $RAVEL --serve"
 check_has "agent：会话含用户消息与回复" \
-      '@[@{:content \"hi\" :role \"user\"} @{:content \"abcdefgh\" :role \"assistant\"}]' \
+      '@[@{:content \"hi\" :from \"c\" :mode \"default\" :role \"user\" :turn 1} @{:content \"abcdefgh\" :from \"c\" :mode \"default\" :role \"assistant\" :turn 2}]' \
       /tmp/rb-e2e-out
 check_rc "agent：@off @RoundDone 关闭自动合并" 0 $RAVEL -e 'agent "c" { }
 @off @RoundDone
@@ -181,7 +181,7 @@ utter
 append
 session'
 check "agent：手动路径也能合并（REQ-19/46）" \
-      '@[@{:content "hi" :role "user"} @{:content "abcdefgh" :role "assistant"}]' \
+      '@[@{:content "hi" :from "c" :mode "default" :role "user" :turn 1} @{:content "abcdefgh" :from "c" :mode "default" :role "assistant" :turn 2}]' \
       "$(cat /tmp/rb-e2e-out)"
 check_rc "流：drain 得到全文" 0 $RAVEL -e 'agent "c" { }
 @off @RoundDone

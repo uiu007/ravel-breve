@@ -34,8 +34,10 @@
    :nstmt (length (p :stmts))})
 
 (defn rb/run-code
-  "执行转译后的宿主序文本。env 复用 = 同一个工作区（REQ-42）；缺省新建（一次性求值）。"
-  [code &opt name env]
+  "执行转译后的宿主序文本。env 复用 = 同一个工作区（REQ-42）；缺省新建（一次性求值）。
+   `nested?` = 工具内部求值（PTC 模式的 `eval`）：只跑代码，**不做一轮收尾**，
+   否则会在 @Toolcall 钩子内部递归触发 @RoundDone（D-59）。"
+  [code &opt name env nested?]
   (def ast (try
              (parse code)
              ([e] (rb/raise (rb/exit-table :syntax-compile)
@@ -55,12 +57,13 @@
   (when err?
     (array/clear stack)
     (each v snap (array/push stack v)))
-  # REQ-18：一轮正常结束 → 触发 @RoundDone（失败/中断不算「完成」）
-  (if err? (rb/round-abort e) (rb/round-finish e))
-  # REQ-20/21：绑定了路径的工作区，正常一轮后追加日志并按需 compact。
-  # 经一处间接层（同 D-29）：装载顺序上 store 在 eval 之后，逻辑在 store 里。
-  (when (not err?)
-    (when rb/after-eval-hook (rb/after-eval-hook e)))
+  (when (not nested?)
+    # REQ-18：一轮正常结束 → 触发 @RoundDone（失败/中断不算「完成」）
+    (if err? (rb/round-abort e) (rb/round-finish e))
+    # REQ-20/21：绑定了路径的工作区，正常一轮后追加日志并按需 compact。
+    # 经一处间接层（同 D-29）：装载顺序上 store 在 eval 之后，逻辑在 store 里。
+    (when (not err?)
+      (when rb/after-eval-hook (rb/after-eval-hook e))))
   {:ok (not err?)
    :value (if err? nil res)
    :error (if err? (fiber/last-value fb) nil)
@@ -69,7 +72,7 @@
 (defn rb/run-source
   "源文本 → 执行结果（含 :code，便于 --dump）。
    环境在**转译前**定下来：定义行的装载期注册（REQ-33）必须落在同一个工作区。"
-  [src &opt name env]
+  [src &opt name env nested?]
   (def e (or env (rb/new-env)))
   (def c (rb/compile-source src name e))
-  (merge (rb/run-code (c :code) name e) {:code (c :code)}))
+  (merge (rb/run-code (c :code) name e nested?) {:code (c :code)}))

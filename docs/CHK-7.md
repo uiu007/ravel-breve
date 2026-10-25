@@ -40,6 +40,7 @@
 
 ```
 $ make test        → 326 单元/符合性 + 94 端到端 + 11 例程 + core-only 全绿
+# v1.0f（REQ-52）后：346 单元/符合性 + 94 端到端 + 12 例程 + core-only 全绿
 $ make test-agent  → 真 NVIDIA 14/0（不进 make test）
 ```
 

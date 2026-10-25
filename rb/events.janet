@@ -34,13 +34,40 @@
 # 事件旁路（REQ-43 的 `event` 消息）：serve 模式下把事件写成 NDJSON。
 (var rb/event-tap nil)
 
+# 模式层（D-59）：`rb/stream-start` 在取消息之前调用它注入模式的 system 提示。
+# 装载序上 modes.janet 晚于 agent.janet，故走间接层（同 D-29）。
+(var rb/mode-inject-prompt nil)
+
+# 历史标记开关（D-59）：默认全开；`flag-set false "history-turn"` 可关掉。
+# 标记写在 Utter 上（`:turn` / `:from` / `:mode`），供前端与摘要钩子读，不进 provider 消息。
+(def rb/flag-defaults
+  @{"history-turn" true "history-origin" true "history-mode" true})
+
+# 默认钩子的**同一批函数对象**：`ws-new` 与 `default` 模式共用它们，
+# 于是「模式 → 钩子 → 模式」可以用 `deep=` 直接比对（D-59 的往返性质）。
+(defn rb/default-round-done-thunk
+  []
+  (when rb/default-round-done (rb/default-round-done)))
+
+(defn rb/default-toolcall-thunk
+  []
+  (when rb/default-toolcall (rb/default-toolcall)))
+
+(defn rb/ws-default-hooks
+  "缺省钩子表（= `default` 模式的内容）。"
+  []
+  @{"@RoundDone" @[rb/default-round-done-thunk]
+    "@Toolcall" @[rb/default-toolcall-thunk]})
+
 (defn rb/ws-new
   "新建一个工作区状态（REQ-30：字典 + 钩子 + 活 agent + 本轮 stream 列表）。
    栈不在这里——它是 env 的 `:rb-stack`（同一工作区的「变量」那半）。"
   []
   @{:dict @{}
-    :hooks @{"@RoundDone" @[(fn [] (when rb/default-round-done (rb/default-round-done)))]
-             "@Toolcall" @[(fn [] (when rb/default-toolcall (rb/default-toolcall)))]}
+    :hooks (rb/ws-default-hooks)
+    :mode "default"      # D-59：当前处理流程（模式）
+    :mode-prompt nil     # 该模式要求注入的 system 提示（nil = 不注入）
+    :flags (table/clone rb/flag-defaults)   # 历史标记开关（默认全开）
     :agents @[]
     :tools @{}     # REQ-48：工具表（名字 → 描述 + 引号）
     :config @{}    # D-54：provider 配置（llm / llm-set / llm-get）

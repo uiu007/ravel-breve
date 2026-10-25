@@ -101,7 +101,7 @@
     (is= 1 (length msgs))
     (is= "chunk" ((first msgs) :type))
     (is= "c" ((first msgs) :stream))
-    (is= "@{:content \"一\" :role \"user\"}" ((first msgs) :text))
+    (is (string/find ":content \"一\"" ((first msgs) :text)) "视图块带上内容")
     (is= 0 (rb/watch-tick! env) "没有新条目时不再推送")))
 
 (deftest "REQ-24：tick 单次上限 64 块（宁可下轮再推，也不饿死输入）"

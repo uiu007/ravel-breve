@@ -60,7 +60,7 @@
 
 (deftest "D-65：自定义头覆盖内置同名项（Authorization / User-Agent 也能换）"
   (fn []
-    (def base @{"Authorization" "Bearer k" "User-Agent" "ravel-breve/1.0j"})
+    (def base @{"Authorization" "Bearer k" "User-Agent" "ravel-breve/1.0k"})
     (lm-with-env [["RB_HEADERS" "User-Agent:mine/2"]]
       (fn []
         (def h (cap/merge-headers base))

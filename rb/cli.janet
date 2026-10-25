@@ -14,8 +14,8 @@
 # 保留名表**不得**与词表重名（REQ-09：一个名字只有一种词性）——`watch` 是方言词
 # （L9），所以它不在这里。
 
-(def rb/version "1.0j")
-(def rb/version-string "ravel breve 1.0j · janet 1.42.1")
+(def rb/version "1.0k")
+(def rb/version-string "ravel breve 1.0k · janet 1.42.1")
 
 # REQ-25：保留的元命令名（无前缀裸词，均不是方言词）
 (def rb/meta-commands
@@ -36,6 +36,8 @@
   (print "  ravel --serve             NDJSON over stdio（REQ-24）")
   (print "  ravel --dump ...          打印转译产物（REQ-31）")
   (print "  ravel --json ...          按协议消息形状输出（REQ-22）")
+  (print "  ravel --preset <名字>     启动即导入 provider 配置预设（REQ-62，可重复）")
+  (print "  ravel --no-config         不装载 ~/.config/ravel/config.json（REQ-63）")
   (print "  ravel -v | -h"))
 
 # ---- 结果 → 文本 / 协议消息 ---------------------------------------------
@@ -322,6 +324,16 @@
 
       (= a "--serve")
       (do (set serve? true) (++ i))
+
+      # REQ-62：一键导入配置预设（可重复，按序叠加；后装的覆盖先装的）
+      (or (= a "--preset") (= a "-p"))
+      (if (>= (inc i) n)
+        (do (eprintf "ravel: --preset 需要一个名字或路径\n") (set exit (rb/exit-table :usage)))
+        (do (array/push rb/config-presets (argv (inc i))) (set i (+ i 2))))
+
+      # REQ-63：显式关掉用户配置文件（`RB_CONFIG=-` 的等价写法）
+      (= a "--no-config")
+      (do (os/setenv "RB_CONFIG" "-") (++ i))
 
       (string/has-prefix? "-" a)
       (do (eprintf "ravel: 未知选项 %s\n" a) (set exit (rb/exit-table :usage)))

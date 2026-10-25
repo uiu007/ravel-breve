@@ -46,4 +46,5 @@ cap/oai.janet
 cap/nvidia.janet
 cap/opencode.janet
 cap/llm.janet
+cap/preset.janet
 cap/tools.janet

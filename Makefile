@@ -41,14 +41,14 @@ test: all test-unit test-e2e test-examples test-core-only
 
 # 测试一律走离线 provider（RB_LLM=mock），确定性、不联网（M3）
 test-unit: $(BUILD)/rb-bundle.janet
-	RB_LLM=mock $(BUILD)/janet tests/run.janet
+	RB_LLM=mock RB_CONFIG=- $(BUILD)/janet tests/run.janet
 
 test-e2e: $(BIN)/ravel
-	RB_LLM=mock bash tests/e2e/cli.sh
+	RB_LLM=mock RB_CONFIG=- bash tests/e2e/cli.sh
 
 # 使用手册里的例程（mock，hermetic）：examples/run-all.sh
 test-examples: $(BIN)/ravel
-	RB_LLM=mock bash examples/run-all.sh
+	RB_LLM=mock RB_CONFIG=- bash examples/run-all.sh
 
 # 真 provider（NVIDIA）：需要密钥；没有则脚本自行跳过（不进 make test）
 test-agent: $(BIN)/ravel

@@ -5,6 +5,8 @@
 #   llm-set  Value Key --              写一项；Value 为 nil = 删除（回落）
 #   llm-models      -- Seq             拉一次当前 provider 的可用模型名（D-66）
 #   llm-auto        -- String          拉模型列表 → 按偏好选一个 → 写回 `model`（D-66）
+#   llm-import NameOrPath -- Table     一键导入预设（presets/<名字>.json 或路径，REQ-62）
+#   llm-export Path       -- Int       把**生效**配置导出成预设文件（REQ-62）
 #   usage           -- Table           本次会话累计的用量（P2：prompt / completion / total / calls）
 #
 # 书写序：`llm-set "nvidia" "provider"` → 镜像后压 `"provider"`、再压 `"nvidia"`，
@@ -47,6 +49,26 @@
     (rb/raise (rb/exit-table :orchestration-base)
               "能力层未提供 :llm/auto（REQ-37：核心不含网络实现）"))
   (rb/push (f)))
+
+(defn rb/llm-import
+  "NameOrPath -- Table；把预设写进工作区配置（只覆盖预设里出现的键），压回配置表。
+   名字先找 `presets/<名字>.json`；带 `/` 或以 `.json` 结尾就当路径。受沙箱约束（REQ-53）。"
+  []
+  (def f (rb/cap-get :llm/import))
+  (when (nil? f)
+    (rb/raise (rb/exit-table :orchestration-base)
+              "能力层未提供 :llm/import（REQ-37：核心不含文件/JSON 实现）"))
+  (rb/push (f (rb/pop))))
+
+(defn rb/llm-export
+  "Path -- Int；把**生效**配置写成预设文件，压回写入项数。
+   密钥永不落盘：`headers` 里带 Authorization / api-key 之类 → 60（D-54）。"
+  []
+  (def f (rb/cap-get :llm/export))
+  (when (nil? f)
+    (rb/raise (rb/exit-table :orchestration-base)
+              "能力层未提供 :llm/export（REQ-37：核心不含文件/JSON 实现）"))
+  (rb/push (f (rb/pop))))
 
 (defn rb/usage
   " -- Table；工作区累计用量。字段与 provider 一致：prompt-tokens / completion-tokens /

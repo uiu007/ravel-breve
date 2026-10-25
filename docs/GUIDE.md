@@ -62,7 +62,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0j · janet 1.42.1
+ravel breve 1.0k · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -72,8 +72,13 @@ $ ./bin/ravel -h
   ravel --serve             NDJSON over stdio（REQ-24）
   ravel --dump ...          打印转译产物（REQ-31）
   ravel --json ...          按协议消息形状输出（REQ-22）
+  ravel --preset <名字>     启动即导入 provider 配置预设（REQ-62，可重复）
+  ravel --no-config         不装载 ~/.config/ravel/config.json（REQ-63）
   ravel -v | -h
 ```
+
+配置的两个开关（细节见 §14.11）：`--preset opencode-go` 一键装预设，
+`--no-config` 不读用户配置文件（等价 `RB_CONFIG=-`）。
 
 REPL 一次吃一行，栈跨行保留：
 
@@ -183,7 +188,7 @@ show'
 | 差别 | 做法 |
 |---|---|
 | 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
-| 必须自称客户端 | `User-Agent: ravel-breve/1.0j`（**不许**用通用 SDK 名）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0k`（**不许**用通用 SDK 名）|
 | 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
 
 另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
@@ -1523,6 +1528,99 @@ show'
 `mock` provider 不联网：列表就是 `@["mock"]`，`llm-auto` 得 `"mock"`。
 所以例程与测试仍然 hermetic（见 `examples/15-headers-models.breve`）。
 
+### 14.11 一键配置：预设（`llm-import` / `llm-export`）
+
+一次设四项配置（provider / 模型 / 上限 / 温度）要四行 `llm-set`。**预设**把它压成一行，
+并且能存下来给下次、给别的机器、给同事：
+
+| 词 | 栈效应 | 作用 |
+|---|---|---|
+| `llm-import` | `NameOrPath -- Table` | 导入预设；**只**覆盖预设里出现的键 |
+| `llm-export` | `Path -- Int` | 把**显式配置**写成预设文件；返回写入项数 |
+
+**名字解析**：带 `/` 或以 `.json` 结尾 = 路径；否则 = `presets/<名字>.json`。仓库自带三份：
+
+```
+$ ls presets/
+mock.json  nvidia.json  opencode-go.json
+```
+
+`presets/opencode-go.json` 长这样（**没有密钥**，密钥只从环境变量或 `secrets/*.key` 来）：
+
+```json
+{ "provider": "opencode", "model": "deepseek-v4.1-flash", "max-tokens": 1024, "temperature": 0.2 }
+```
+
+#### 三种用法
+
+**① 启动时一键装**（最省事）：
+
+```
+$ ./bin/ravel --preset opencode-go -e 'llm-get "provider"
+show'
+"opencode"
+```
+
+环境变量写法等价：`RB_PRESET=opencode-go`（逗号分隔可以一次装几份，按序叠加）。
+
+**② 用户配置文件**：把预设存到 `~/.config/ravel/config.json`（或 `RB_CONFIG` 指定的路径），
+**下次启动自动装**，stderr 会通报一行：
+
+```
+$ printf '{"provider":"opencode","model":"deepseek-v4.1-flash"}\n' > ~/.config/ravel/config.json
+$ ./bin/ravel -e 'llm-get "provider"
+show'
+ravel: 已装载配置 /home/u/.config/ravel/config.json
+"opencode"
+```
+
+不想让它生效：`--no-config`（等价 `RB_CONFIG=-`）。**测试里一律关掉**（`make test` 已经这么做了）。
+
+**③ 运行中导入 / 导出**：
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'llm-import "opencode-go"
+llm-set 2048 "max-tokens"
+llm-export "build/tmp/mine.json"
+show'
+4
+```
+
+导出的就是「显式配置」，再 `llm-import` 回来**逐键一致**（往返）：
+
+```
+$ ./bin/ravel --preset build/tmp/mine.json -e 'llm-get "max-tokens"
+show'
+2048
+```
+
+#### 四条硬规则
+
+1. **只写白名单键**：预设里出现 `key` → 60；拼错配置项（`provier`）→ 31。与 `llm-set` 同一份校验。
+2. **只覆盖出现的键**：一份预设只改它写了的项，别的原样保留——所以预设**可叠加**。
+3. **导出只导显式的**：`endpoint`、`temperature` 这类由环境变量或缺省推出来的值**不写进预设**
+   （`RB_OC_BASE` 是这台机器的事）。要固化就显式 `llm-set` 一次。
+4. **密钥永不进预设**：`headers` 里带 `Authorization` / `api-key` / `token` / `secret` /
+   `cookie` 之类 → 导出报 **60**，且不创建文件。预设天生是要被复制、提交、贴给别人的。
+
+#### 优先级（D-54 的延伸）
+
+**`--preset` / `llm-set`（运行中写的）> 用户配置文件 > 环境变量 > 内置缺省**。
+用户配置文件之所以在环境变量之上，是因为它**写进工作区配置**——而工作区配置本来就赢环境变量。
+
+#### 一条命令配好 OpenCode Go
+
+`tools/oc-setup.sh` 把「存密钥 + 存配置」合成一步（**不是词**，是宿主脚本）：
+
+```
+$ tools/oc-setup.sh sk-xxxx            # 密钥 → secrets/opencode.key，预设 → ~/.config/ravel/config.json
+$ tools/oc-setup.sh --verify sk-xxxx    # 顺手拉一次模型列表验证
+$ tools/oc-setup.sh --local             # 不想写家目录：配置写 ./.ravel.json（用 RB_CONFIG 指它）
+```
+
+- 密钥文件已存在时**拒绝覆盖**（`--force` 换，换之前自动留 `.bak`）——防止手滑把能用的钥匙冲掉。
+- 密钥与配置**分开放**：配置可以随便复制，密钥不会跟着跑。
+
 ## 15. 前端协议（`--serve`）
 
 一行一条 JSON。裸文本行 = `eval` 的简写；显式请求：
@@ -1542,7 +1640,7 @@ show'
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0j · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0k · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -1748,12 +1846,12 @@ ravel> ()
 | L8 钩子 / 工具 | `@on` `@off` `deftool` `invoke` `resend` `stop` `cancel` `drain` `next` |
 | L9 前端 | `watch` `subscribe` `unsubscribe` |
 | L9b 插件 | `plug` `plugins` `unplug` |
-| provider 配置 | `llm` `llm-get` `llm-set` `llm-models` `llm-auto` |
+| provider 配置 | `llm` `llm-get` `llm-set` `llm-models` `llm-auto` `llm-import` `llm-export` |
 
-完整栈效应见 `ravel-breve-spec-v1.0j.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
+完整栈效应见 `ravel-breve-spec-v1.0k.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
 （v1.0e 已把 SF-14…SF-35 冻结；v1.0f 加 REQ-52 处理流程层；v1.0g 加沙箱与默认工具；
 v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型列表；
-v1.0j 加插件 ABI 与 skills）。
+v1.0j 加插件 ABI 与 skills；v1.0k 加配置预设与启动装载）。
 
 ---
 
@@ -1777,6 +1875,7 @@ v1.0j 加插件 ABI 与 skills）。
 | `examples/14-usage-cancel.breve` | 用量记账（`usage`）与取消（`stop` / `cancel`）|
 | `examples/15-headers-models.breve` | 自定义请求头（`headers`）、模型列表（`llm-models`）与自动配置（`llm-auto`）|
 | `examples/16-plugins.sh` | 插件：`plug` / `plugins` / `unplug` 的装-用-卸全程 |
+| `examples/17-presets.sh` | 配置预设：`--preset` / `RB_PRESET` / 用户配置文件 / `llm-import` / `llm-export` |
 | `examples/run-all.sh` | 一次跑完上面全部 |
 
 ```

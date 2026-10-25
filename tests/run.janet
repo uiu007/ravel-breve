@@ -8,6 +8,8 @@
 # 测试hermetic：一律走离线 provider，不联网（M3：agent 测试需要确定性）
 (os/setenv "RB_LLM" "mock")
 (os/setenv "RB_MOCK_REPLY" "abcdefgh")
+# 同理：不读用户机器的 ~/.config/ravel/config.json（REQ-63 的开关）
+(os/setenv "RB_CONFIG" "-")
 
 (defn rb-load-forms
   [path]

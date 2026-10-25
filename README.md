@@ -3,8 +3,8 @@
 **波兰（前缀）式书写、类 Forth 栈机执行**的 **agent 会话编排方言**，宿主为 Janet 1.42.x（amalgamated，静态嵌入）。
 
 - 命令：`ravel`，脚本扩展名 `.breve`，提示符 `ravel> `
-- 规格（现行）：`ravel-breve-spec-v1.0j.md`（插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
-  `ravel-breve-spec-v1.0c.md` … `ravel-breve-spec-v1.0i.md` / `ravel-breve-spec-v1.0b.md` 保留为历史（不删改）
+- 规格（现行）：`ravel-breve-spec-v1.0k.md`（配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
+  `ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0j.md` 保留为历史（不删改）
 - 许可：**MIT**（见 `LICENSE`）；嵌入的 Janet 1.42.1 亦为 MIT（见 `vendor/janet`）
 - 规格反馈（缺陷/留白）：`docs/SPEC-FEEDBACK.md`
 - 开发计划与检查点：`PLAN.md`
@@ -19,13 +19,13 @@ bash tests/e2e/agent.sh     # 真 provider 验收（NVIDIA；无密钥则跳过�
 bash tests/e2e/opencode.sh  # 真 provider 验收（OpenCode Zen/Go；无密钥则跳过）
 ```
 
-验收现状：**M10**（词表 L0–L10 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
-工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边 + 用量 / 取消 / 截止 + 请求头 / 模型列表 + 插件 ABI）。
-`make test` → 391 单元/符合性 + 103 端到端 + 16 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0，`make test-oc` → 真 OpenCode 25/0。
+验收现状：**M11**（词表 L0–L10 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
+工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边 + 用量 / 取消 / 截止 + 请求头 / 模型列表 + 插件 ABI + 配置预设）。
+`make test` → 402 单元/符合性 + 121 端到端 + 17 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0，`make test-oc` → 真 OpenCode 25/0。
 
 ```sh
 make clean && make
-./bin/ravel -v                         # ravel breve 1.0j · janet 1.42.1
+./bin/ravel -v                         # ravel breve 1.0k · janet 1.42.1
 ./bin/ravel --dump -e 'take 2 "abcde"' # (do (rb/push "abcde") (rb/push 2) (rb/take))
 ./bin/ravel -e 'take 2 "abcde"'        # "ab"
 ./bin/ravel -e 'map [ * 2 ] { 1 2 3 }' # (2 4 6)
@@ -43,6 +43,8 @@ ravel script.breve          # 执行脚本
 ravel --serve               # NDJSON over stdio（前后端分离，REQ-24）
 ravel --json ...            # 结果按协议消息形状输出（REQ-22）
 ravel --dump ...            # 打印转译产物（REQ-31）
+ravel --preset opencode-go  # 启动即装 provider 配置预设（REQ-62，可重复）
+ravel --no-config           # 不读 ~/.config/ravel/config.json（REQ-63）
 ravel -v | -h
 ```
 
@@ -146,6 +148,32 @@ unplug "plugin"                                 # → 3（词 + 钩子 + 工具�
 - **无传递依赖**：插件里再 `plug` → 31；一次装多个用 `RB_PLUGINS=a.breve,b.breve`（按序）。
 - **不能新增能力**：能力表只有宿主可写；`--core-only` 下 `plug` 报 60（REQ-37 的边界不变）。
 - 写插件的说明书在 `skills/ravel-breve-plugin/SKILL.md`（核心层 / 用户层分节，附可跑样板）。
+
+## 配置预设（M11 / v1.0k）
+
+配好一个 provider 要四项（provider / 模型 / 上限 / 温度）。**预设**把这件事压成一行，并且能存下来：
+
+```sh
+./bin/ravel --preset opencode-go          # 启动即装（预设 = presets/opencode-go.json）
+RB_PRESET=nvidia ./bin/ravel              # 环境变量写法（逗号分隔 = 按序叠加）
+
+# 存到用户配置文件后，下次启动自动生效（stderr 通报一行；--no-config 可关）
+mkdir -p ~/.config/ravel && cp presets/opencode-go.json ~/.config/ravel/config.json
+./bin/ravel                               # ravel: 已装载配置 /home/u/.config/ravel/config.json
+```
+
+```breve
+llm-import "opencode-go"        # 运行中导入 → 返回配置表（只覆盖预设里出现的键）
+llm-set 2048 "max-tokens"
+llm-export ".ravel.json"        # 存回去 → 4（写入项数）
+```
+
+- **只写白名单键**：预设里出现 `key` → 60；拼错配置项 → 31（与 `llm-set` 同一份校验）。
+- **密钥永不进预设**：导出时 `headers` 里带 `Authorization` / `api-key` / `token` / `secret` /
+  `cookie` → 60 且不建文件。预设天生要被复制、提交、贴给别人。
+- **只导显式配置**：`endpoint`、`temperature` 之类由环境变量推出来的值不写进预设（那是这台机器的事）。
+- 一键配好 OpenCode Go：`tools/oc-setup.sh sk-xxxx`（密钥 → `secrets/opencode.key` chmod 600 +
+  预设 → `~/.config/ravel/config.json`；已有密钥**拒绝覆盖**，`--force` 会先留 `.bak`）。
 
 ## 持久化与工作区（M4）
 

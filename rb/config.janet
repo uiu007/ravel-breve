@@ -61,6 +61,18 @@
 
 (var rb/llm-resolve nil)  # 能力层注册：配置项 → **生效值**（含环境变量与缺省）
 
+# ---- 预设（REQ-62 / REQ-63）--------------------------------------------
+#
+# 预设 = 一份 JSON 里的多项配置。核心只做三件事：记下「启动要装哪些」（cli-main 填）、
+# 留一个间接层给能力层注册「怎么装」、以及白名单校验（rb/config-check 已在上面）。
+# 读写文件与 JSON 全在 cap/preset.janet（REQ-37：核心不含文件/JSON 实现）。
+
+(def rb/config-presets
+  "启动时要装载的预设（名字或路径，**按序**）；`--preset` 往里追加，`RB_PRESET` 也装。"
+  @[])
+
+(var rb/config-startup nil)  # 能力层注册：`(fn [env] -> 装载个数)`，rb/new-env 调用
+
 (defn rb/config-get
   "取生效值：能能力层解析就用能力层（配置 > 环境变量 > 缺省），否则只读工作区。"
   [k]

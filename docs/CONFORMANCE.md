@@ -1,8 +1,8 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0j.md`**（插件 ABI / skills）；
-`ravel-breve-spec-v1.0c.md` … `ravel-breve-spec-v1.0i.md` / `ravel-breve-spec-v1.0b.md` 为历史原文。
-状态：**M6**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+依据规格：**`ravel-breve-spec-v1.0k.md`**（provider 配置预设）；
+`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0j.md` 为历史原文。
+状态：**M11**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
 > v1.0d 新增 **REQ-47…REQ-51**（见文末）；**v1.0e 不新增 REQ**（只把 SF-14…SF-35 冻结，见其附录 I）；
@@ -10,7 +10,8 @@
 > **v1.0g 新增 REQ-53 / REQ-54**（文件沙箱、默认工具包，见其 §4.14 与附录 L）；
 > **v1.0h 新增 REQ-55 / REQ-56 / REQ-57**（用量记账、取消与传播、流截止时间，见其 §4.15 与附录 M）；
 > **v1.0i 新增 REQ-58 / REQ-59**（自定义请求头、模型列表与自动配置，见其 §4.16 与附录 N）；
-> **v1.0j 新增 REQ-60 / REQ-61**（插件装载卸载、插件编写 skills 的分层，见其 §4.17 与附录 O）。
+> **v1.0j 新增 REQ-60 / REQ-61**（插件装载卸载、插件编写 skills 的分层，见其 §4.17 与附录 O）；
+> **v1.0k 新增 REQ-62 / REQ-63**（配置预设的导入导出、启动装载，见其 §4.18 与附录 P）。
 
 跑法：`make test`（单元 + 符合性 + 端到端 + 附录 D）。
 
@@ -313,3 +314,12 @@ D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
 | REQ-61 | 插件编写 skills：`skills/<name>/SKILL.md` + 可选可跑 `plugin.breve`；文档**必须分节**写清**核心层**（不可碰：词法/转译/栈/流/agent/钩子机制/持久化/协议/退出码/核心词表）与**用户层**（可碰：词/钩子/工具/模式），并给出「用户手打」与「打包插件」两条等价路径；`skills/` 不进 bundle | ✅ | `unit/plugins.janet`（技能样板可装可跑）、`examples/16-plugins.sh`、`tools/core-only-check.janet` |
 
 决策记录：D-67（插件 ABI 与 skills）。
+
+## v1.0k 新增 REQ（62–63）
+
+| REQ | 内容 | 状态 | 测试 |
+|---|---|---|---|
+| REQ-62 | 配置预设：`llm-import NameOrPath -- Table` / `llm-export Path -- Int`（均 0 元）；预设 = JSON 对象，键走 `rb/config-keys` 白名单；名字查 `presets/<名字>.json`；**只覆盖预设里出现的键**；导入经 `:fs/read`（沙箱内）；导出**只导显式配置**；`key` / 未知项 31、密钥型 header 60 且不建文件、读不到 40 | ✅ | `unit/preset.janet`（6 条）、`e2e/cli.sh`（导入/往返/拒绝导出）、`examples/17-presets.sh` |
+| REQ-63 | 启动装载：用户配置文件（`RB_CONFIG` 或 `~/.config/ravel/config.json`，存在才装、`-` 关闭）→ `RB_PRESET` → `--preset`（按序覆盖）；在 `rb/new-env` 里先于插件装载；stderr 通报一行；失败即终止启动；测试一律 `RB_CONFIG=-` | ✅ | `unit/preset.janet`（2 条）、`e2e/cli.sh`（`--preset` / `RB_PRESET` / 通报 / `--no-config`）、`examples/17-presets.sh` |
+
+决策记录：D-69（配置预设）。

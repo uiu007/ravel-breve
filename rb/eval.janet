@@ -20,6 +20,8 @@
   (def ws (rb/ws-new))
   (put ws :env env)
   (put env :rb-ws ws)
+  # 先装 provider 配置预设（REQ-63）：插件可能要用 llm-get 看配置，所以配置在前。
+  (when rb/config-startup (with-dyns [:rb-ws ws] (rb/config-startup env)))
   # 插件装载期间 `(rb/ws)` 必须指向**这个**工作区（插件往这里加词/钩子/工具）
   (when rb/plugin-startup (with-dyns [:rb-ws ws] (rb/plugin-startup env)))
   env)

@@ -269,7 +269,7 @@ M6 的内容按 v1.0d 收束为「agent 的基本能力」：REQ-47…REQ-51（�
 
 ---
 
-## 7. 阶段进度（追记，截至 v1.0j）
+## 7. 阶段进度（追记，截至 v1.0k）
 
 | 里程碑 | 内容（对应规格） | 状态 |
 |---|---|---|
@@ -283,6 +283,7 @@ M6 的内容按 v1.0d 收束为「agent 的基本能力」：REQ-47…REQ-51（�
 | — | 用量记账 / 取消与血缘传播 / 流截止时间（REQ-55/56/57，v1.0h） | ✅ tag `m8` |
 | — | 自定义请求头 / 模型列表与自动配置（REQ-58/59，v1.0i） | ✅ |
 | M10 | 插件 ABI（`plug`/`plugins`/`unplug`）+ 插件编写 skills + MIT（REQ-60/61，v1.0j） | ✅ |
+| M11 | provider 配置预设：`llm-import`/`llm-export` + 启动装载（`--preset`/`RB_PRESET`/`RB_CONFIG`）+ `tools/oc-setup.sh`（REQ-62/63，v1.0k） | ✅ |
 
 > 里程碑之后的每一轮都保持三条不变量：**规格先行**（新 REQ 进新版 spec 文件，旧版不删改）、
 > **每条 REQ 有可执行验收**（`docs/CONFORMANCE.md`）、**测试 hermetic**（`RB_LLM=mock`）——

@@ -272,5 +272,39 @@ check "cancel：栈上是 3" "yes" \
 check_rc "cancel 词：空工作区返回 0" 0 $RAVEL -e 'cancel'
 check "cancel 词：栈顶 0" "0" "$(cat /tmp/rb-e2e-out)"
 
+# REQ-62 / REQ-63：provider 配置预设 —— 一键导入、导出、启动装载
+check_rc "预设：--preset 一键导入（provider）" 0 $RAVEL --preset opencode-go -e 'llm-get "provider"'
+check "预设：--preset 真的换了 provider" '"opencode"' "$(cat /tmp/rb-e2e-out)"
+check "预设：装的是仓库自带那份（max-tokens=1024）" "1024" \
+      "$($RAVEL --preset opencode-go -e 'llm-get "max-tokens"' 2>/dev/null | tail -1)"
+check_rc "预设：RB_PRESET 环境变量等价" 0 env RB_PRESET=nvidia $RAVEL -e 'llm-get "provider"'
+check "预设：RB_PRESET 生效" '"nvidia"' "$(cat /tmp/rb-e2e-out)"
+check_rc "预设：名字不存在 → 40" 40 $RAVEL --preset nope -e '1'
+check_rc "预设：--preset 缺参数 → 2" 2 $RAVEL --preset
+# 用户配置文件：存在就装（stderr 一行通报），--no-config 关掉
+PUSER=build/tmp/e2e-user-config.json
+printf '{"provider":"mock","model":"from-user-file"}\n' > "$PUSER"
+check_rc "预设：RB_CONFIG 指定的用户配置被装载" 0 env RB_CONFIG="$PUSER" $RAVEL -e 'llm-get "model"'
+check "预设：用户配置生效" '"from-user-file"' "$(cat /tmp/rb-e2e-out)"
+check "预设：装载动作在诊断通道可见（REQ-43）" "yes" \
+      "$(grep -q '已装载配置' /tmp/rb-e2e-err && echo yes || echo no)"
+check_rc "预设：--no-config 关掉用户配置" 0 env RB_CONFIG="$PUSER" $RAVEL --no-config -e 'llm-get "model"'
+check "预设：--no-config 后回到内置缺省" "yes" \
+      "$(grep -qv 'from-user-file' /tmp/rb-e2e-out && echo yes || echo no)"
+# 方言里的导入 / 导出（沙箱内）
+PEXP=build/tmp/e2e-export.json
+check_rc "预设：llm-import 名字" 0 $RAVEL -e 'llm-import "opencode-go"
+llm-get "provider"'
+check "预设：llm-import 生效" '"opencode"' "$(tail -1 /tmp/rb-e2e-out)"
+check_rc "预设：llm-export 写文件" 0 $RAVEL -e "llm-import \"opencode-go\"
+llm-export \"$PEXP\""
+check "预设：导出的文件能再导入（往返）" '"opencode"' \
+      "$($RAVEL --preset "$PEXP" -e 'llm-get "provider"' 2>/dev/null | tail -1)"
+check_rc "预设：带 Authorization 的 headers 不许导出（60）" 60 $RAVEL -e \
+  "llm-set H{ \"Authorization\" \"Bearer sk-x\" } \"headers\"
+llm-export \"build/tmp/e2e-leak.json\""
+check "预设：拒绝导出后没留下文件" "yes" \
+      "$([ -e build/tmp/e2e-leak.json ] && echo no || echo yes)"
+
 echo "端到端：通过 $pass，失败 $fail"
 [ "$fail" -eq 0 ]

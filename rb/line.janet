@@ -152,7 +152,9 @@
   [&opt hist]
   @{:cps @[] :cur 0 :mode :emacs :pending nil
     :hist (or hist @[]) :hist-i (length (or hist @[])) :saved ""
-    :undo @[] :action nil})
+    :undo @[] :action nil
+    # 上一次绘制的视觉位置（D-70）：:rows = 内容占的行数，:rpos = 光标在第几行
+    :rows 0 :rpos 0})
 
 (defn- rb/line-undo!
   "改动前记一笔（只留最近 32 步）。"
@@ -199,6 +201,33 @@
       (def left (max 0 (- (min cur b) a)))
       (put st :cur (max 0 (min (- cur left) (length cps))))
       cut)))
+
+(defn rb/line-paste!
+  "整段插入（括号粘贴，D-70）。
+
+  单行编辑器里换行只能是分隔：`\n`/`\r` 折成一个空格，制表折成两个空格，
+  其余控制字符丢掉——否则一个粘贴进来的 ESC 就能把整屏搅乱。"
+  [st text]
+  (rb/line-undo! st)
+  (def cps (st :cps))
+  (var at (st :cur))
+  (each cp (rb/line-cps-of (string/replace-all "\r\n" "\n" text))
+    (def repl (cond
+                (or (= cp 10) (= cp 13)) @[32]
+                (= cp 9) @[32 32]
+                (or (< cp 32) (= cp 127)) @[]
+                @[cp]))
+    (each c repl
+      (array/insert cps at c)
+      (set at (+ at 1))))
+  (put st :cur at)
+  nil)
+
+(defn rb/line-paste-text
+  "取宿主存下的粘贴正文（没有宿主 / 没有粘贴时是空串）。"
+  []
+  (def t (and rb/line-term (rb/line-term :paste-text)))
+  (if t (string (t)) ""))
 
 # ---- 历史 -----------------------------------------------------------------
 
@@ -393,19 +422,66 @@
     :vim-insert (string prompt "-- INSERT -- ")
     prompt))
 
+(defn rb/line-cols
+  "终端列数（拿不到就当 80）。"
+  []
+  (def t (and rb/line-term (rb/line-term :size)))
+  (def sz (if t (t) nil))
+  (def c (if sz (get sz 1) nil))
+  (if (and (number? c) (> c 0)) (math/floor c) 80))
+
+(defn rb/line-geom
+  "视觉几何（D-70）：提示符宽度 `plen`、光标前宽度 `cpos`、文本宽度 `tw`、列数 `cols`
+   → `{:rows 内容占几行 :rpos 光标在第几行 :col 光标在第几列 :wrap? 行尾是否正好填满}`。
+
+  这几个数是**重绘的全部依据**：不知道 `rows`/`rpos` 就没法从「上一屏的某一行」
+   回到这一行的开头，长行就会一层层叠着印（这是 D-70 修的那个 bug）。"
+  [plen cpos tw cols]
+  (def c (max 1 cols))
+  (def total (+ plen tw))
+  (def ctotal (+ plen cpos))
+  @{:rows (math/floor (/ total c))
+    :wrap? (and (> total 0) (zero? (mod total c)))
+    :rpos (math/floor (/ ctotal c))
+    :col (mod ctotal c)})
+
+(defn rb/line-render
+  "生成一次重绘的转义序列（**纯函数**，便于单元测试），并把新位置写回 `st`。
+
+  三步：① 从上次的光标行回到逻辑行首并擦到屏尾；② 打印提示符 + 整行；
+  ③ 从行尾走回光标该在的格子（`rows`/`rpos`/`col` 全由上一步的几何算出）。"
+  [st p cols]
+  (def cps (st :cps))
+  (def cur (st :cur))
+  (def text (rb/line-text cps))
+  (def before (rb/line-text (array/slice cps 0 cur)))
+  (def plen (rb/line-width p))
+  (def g (rb/line-geom plen (rb/line-width before) (rb/line-width text) cols))
+  (def out (buffer/new 128))
+  # ① 回到逻辑行首：先上移到上次光标所在行，再回到列 0，再擦到屏尾
+  (def old-rpos (or (st :rpos) 0))
+  (when (> old-rpos 0) (buffer/push-string out (string "\e[" old-rpos "A")))
+  (buffer/push-string out "\r")
+  (buffer/push-string out "\e[J")
+  # ② 打印
+  (buffer/push-string out p)
+  (buffer/push-string out text)
+  # 行尾正好填满一行时，终端在「待换行」状态（光标仍停在最后一列）：
+  # 显式走一行，几何才和眼睛看到的一致。
+  (when (g :wrap?) (buffer/push-string out "\n\r"))
+  # ③ 走回目标格子
+  (def up (- (g :rows) (g :rpos)))
+  (when (> up 0) (buffer/push-string out (string "\e[" up "A")))
+  (buffer/push-string out "\r")
+  (when (> (g :col) 0) (buffer/push-string out (string "\e[" (g :col) "C")))
+  (put st :rows (g :rows))
+  (put st :rpos (g :rpos))
+  out)
+
 (defn rb/line-draw
   [prompt st]
   (def p (rb/line-prompt prompt (st :mode)))
-  (def cps (st :cps))
-  (def before (rb/line-text (array/slice cps 0 (st :cur))))
-  (def out (buffer/new 64))
-  (buffer/push-string out "\r\e[K")
-  (buffer/push-string out p)
-  (buffer/push-string out (rb/line-text cps))
-  (buffer/push-string out "\r")
-  (def col (+ (rb/line-width p) (rb/line-width before)))
-  (when (> col 0) (buffer/push-string out (string "\e[" col "C")))
-  (file/write stdout out)
+  (file/write stdout (rb/line-render st p (rb/line-cols)))
   (file/flush stdout)
   st)
 
@@ -428,7 +504,10 @@
   (when draw? (rb/line-draw prompt st))
   (var running true)
   (while running
-    (def act (rb/line-apply-key! st (keyfn)))
+    (def act (let [code (keyfn)]
+               (if (= code -200)                 # 括号粘贴：整段一次插入、只重绘一次
+                 (do (rb/line-paste! st (rb/line-paste-text)) nil)
+                 (rb/line-apply-key! st code))))
     (case act
       :submit (set running false)
       :eof (set running false)

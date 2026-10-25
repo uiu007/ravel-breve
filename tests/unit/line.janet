@@ -250,3 +250,79 @@
     (is (nil? rb/line-term))
     (is (not (rb/line-tty?)))
     (is (function? rb/line-reader))))
+
+# ---- 长行重绘与括号粘贴（D-70）--------------------------------------------
+
+(deftest "重绘几何：行数 / 光标行 / 光标列（D-70）"
+  (fn []
+    # 提示符 3 列，文本 4 列，光标在行尾，40 列终端 → 一行、第 0 行、第 7 列
+    (def a (rb/line-geom 3 4 4 40))
+    (is= 0 (a :rows))
+    (is= 0 (a :rpos))
+    (is= 7 (a :col))
+    (is (not (a :wrap?)))
+    # 文本 37 列 → 共 40 列 = 正好一行：终端停在「待换行」，要显式走一行
+    (def b (rb/line-geom 3 37 37 40))
+    (is= 1 (b :rows))
+    (is (b :wrap?))
+    (is= 0 (b :col))
+    # 再长一列 → 两行，光标在第二行
+    (def c (rb/line-geom 3 38 38 40))
+    (is= 1 (c :rows))
+    (is (not (c :wrap?)))
+    (is= 1 (c :col))
+    # 光标在中间：行尾在第一行，光标也在第一行
+    (def d (rb/line-geom 3 5 30 40))
+    (is= 0 (d :rows))
+    (is= 0 (d :rpos))
+    (is= 8 (d :col))))
+
+(defn line-draw-str
+  "跑一次重绘，取转义串（不碰 stdout）。"
+  [text cur cols]
+  (def st (rb/line-state))
+  (rb/line-set! st (rb/line-cps-of text) cur)
+  (string (rb/line-render st "r> " cols)))
+
+(deftest "重绘：短行只有一次文本、结尾回到光标格（D-70）"
+  (fn []
+    (def s (line-draw-str "abc" 3 80))
+    (is= "\r\e[Jr> abc\r\e[6C" s)))
+
+(deftest "重绘：长行不叠印——每次重绘先把上一屏擦掉（D-70 的那个 bug）"
+  (fn []
+    # 逐字变长的长行（粘贴时的情形）：20 列终端，最终 60 字符
+    (def st (rb/line-state))
+    (var text "")
+    (var last "")
+    (each c (rb/line-cps-of "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghij")
+      (set text (string text (rb/line-text @[c])))
+      (rb/line-set! st (rb/line-cps-of text) (length (rb/line-cps-of text)))
+      (set last (string (rb/line-render st "r> " 20))))
+    # 最后一次重绘：文本只出现一次（没有一层层的旧副本），且以「回到行首」开头
+    (is (not (nil? (string/find text last))) "文本在重绘串里")
+    (is= 1 (length (string/find-all text last)) "文本只出现一次")
+    (is (string/has-prefix? "\e[" last) "先上移回逻辑行首")
+    (is (string/has-suffix? "C" last) "最后把光标放到该在的列")))
+
+(deftest "重绘：行尾正好填满一行时显式换行，不让终端停在待换行（D-70）"
+  (fn []
+    (def s (line-draw-str "0123456789" 10 13))   # 提示符 3 + 10 = 13 = 整整一行
+    (is (string/find "\n\r" s) "有显式换行")
+    (def g (rb/line-geom 3 10 10 13))
+    (is (g :wrap?))))
+
+(deftest "粘贴：整段插入，换行折成空格、制表折成两空格、控制字符丢掉（D-70）"
+  (fn []
+    (def st (rb/line-state))
+    (rb/line-set! st (rb/line-cps-of "ab") 1)          # 光标在 a 与 b 之间
+    (rb/line-paste! st "1\n2\r\n3\t4\e7")
+    (is= "a1 2 3  47b" (rb/line-text (st :cps)))
+    (is= 10 (st :cur))                                 # 光标落在插入内容之后
+    # 粘贴也不该把行编辑器弄成多行：重绘仍然按单行几何算，且文本只出现一次
+    (def out (string (rb/line-render st "r> " 20)))
+    (is= 1 (length (string/find-all (rb/line-text (st :cps)) out)))))
+
+(deftest "粘贴：没有宿主原语时取到空串（不崩）"
+  (fn []
+    (is= "" (rb/line-paste-text))))

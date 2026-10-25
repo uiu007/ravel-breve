@@ -19,6 +19,8 @@
 #include <termios.h>
 #include <unistd.h>
 #include <poll.h>
+#include <stdlib.h>
+#include <sys/ioctl.h>   /* TIOCGWINSZ（win 上没有就靠下面的 #if 兜住）*/
 #define RB_HAVE_TERM 1
 #else
 #define RB_HAVE_TERM 0
@@ -37,18 +39,61 @@
 #define RB_KEY_DEL   -107
 #define RB_KEY_WORD_RIGHT -108
 #define RB_KEY_WORD_LEFT  -109
+#define RB_KEY_PASTE -200  /* 括号粘贴：整段文本已存好，用 (rb-term :paste-text) 取（D-70）*/
+
+/* 括号粘贴的结束标记（终端在粘贴结束时发它） */
+#define RB_PASTE_END "\x1b[201~"
+#define RB_PASTE_END_LEN 6
+#define RB_PASTE_MAX (1 << 20)   /* 粘贴文本上限：1 MiB，超了截断 */
 
 #define RB_ESC_WAIT_MS 40   /* ESC 之后等这么久；超时 = 用户按了 Esc（D-57） */
 
 #if RB_HAVE_TERM
 static struct termios rb_tio_saved;
 static int rb_tio_raw = 0;
+static char rb_paste_buf[RB_PASTE_MAX + 1];
 
 static void rb_tio_restore(void) {
     if (rb_tio_raw) {
+        if (isatty(STDOUT_FILENO)) {          /* 关掉括号粘贴，别把终端留在怪状态 */
+            static const char off[] = "\x1b[?2004l";
+            ssize_t w = write(STDOUT_FILENO, off, sizeof(off) - 1);
+            (void) w;
+        }
         tcsetattr(STDIN_FILENO, TCSADRAIN, &rb_tio_saved);
         rb_tio_raw = 0;
     }
+}
+
+/* 终端尺寸：[行 列]（TIOCGWINSZ；不支持时退回环境变量 / 24x80）*/
+static Janet rb_cf_size(int32_t argc, Janet *argv) {
+    (void) argc; (void) argv;
+    long rows = 24, cols = 80;
+    int ok = 0;
+#if defined(TIOCGWINSZ)
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) {
+        rows = ws.ws_row > 0 ? ws.ws_row : 24;
+        cols = ws.ws_col;
+        ok = 1;
+    }
+#endif
+    if (!ok) {
+        const char *c = getenv("COLUMNS");
+        const char *l = getenv("LINES");
+        if (c && atoi(c) > 0) cols = atoi(c);
+        if (l && atoi(l) > 0) rows = atoi(l);
+    }
+    Janet *t = janet_tuple_begin(2);
+    t[0] = janet_wrap_number((double) rows);
+    t[1] = janet_wrap_number((double) cols);
+    return janet_wrap_tuple(janet_tuple_end(t));
+}
+
+/* 上一次括号粘贴的文本 */
+static Janet rb_cf_paste_text(int32_t argc, Janet *argv) {
+    (void) argc; (void) argv;
+    return janet_cstringv(rb_paste_buf);
 }
 
 static Janet rb_cf_tty(int32_t argc, Janet *argv) {
@@ -69,6 +114,13 @@ static Janet rb_cf_raw_on(int32_t argc, Janet *argv) {
     t.c_cc[VTIME] = 0;
     if (tcsetattr(STDIN_FILENO, TCSADRAIN, &t) != 0) return janet_wrap_boolean(0);
     rb_tio_raw = 1;
+    /* 开括号粘贴：终端会把整段粘贴包在 ESC[200~ … ESC[201~ 里（D-70）。
+       只在真终端里发——stdout 若是管道（--serve / 重定向）就一个字节也不许写。 */
+    if (isatty(STDOUT_FILENO)) {
+        static const char on[] = "\x1b[?2004h";
+        ssize_t w = write(STDOUT_FILENO, on, sizeof(on) - 1);
+        (void) w;
+    }
     return janet_wrap_boolean(1);
 }
 
@@ -94,6 +146,8 @@ static int rb_get_byte(int timeout_ms) {
     return (int) c;
 }
 
+static void rb_read_paste(void);   /* 前向声明：CSI 解析要用（见下）*/
+
 /* ESC [ ... <final>（或 ESC O <final>）→ 键码 */
 static int rb_read_csi(void) {
     char params[16];
@@ -111,6 +165,10 @@ static int rb_read_csi(void) {
                 case 'H': return RB_KEY_HOME;
                 case 'F': return RB_KEY_END;
                 case '~':
+                    if (strcmp(params, "200") == 0) {      /* 括号粘贴开始 */
+                        rb_read_paste();
+                        return RB_KEY_PASTE;
+                    }
                     if (params[0] == '1' || params[0] == '7') return RB_KEY_HOME;
                     if (params[0] == '4' || params[0] == '8') return RB_KEY_END;
                     if (params[0] == '3') return RB_KEY_DEL;
@@ -121,6 +179,30 @@ static int rb_read_csi(void) {
         if (nparams < (int) sizeof(params) - 1) params[nparams++] = (char) c;
     }
     return RB_KEY_BARE_ESC;
+}
+
+/* 读一段括号粘贴的正文：一直读到 ESC[201~ 为止（存进 rb_paste_buf）。 */
+static void rb_read_paste(void) {
+    size_t n = 0;
+    const char *end = RB_PASTE_END;
+    size_t m = 0;                       /* 已匹配的结束标记字节数 */
+    rb_paste_buf[0] = '\0';
+    while (n < RB_PASTE_MAX) {
+        int c = rb_get_byte(-1);
+        if (c < 0) break;               /* EOF / 读失败：有多少算多少 */
+        rb_paste_buf[n++] = (char) c;
+        rb_paste_buf[n] = '\0';
+        if (c == (unsigned char) end[m]) {
+            m++;
+            if (m == RB_PASTE_END_LEN) {          /* 命中结束标记：把它从文本里去掉 */
+                n -= RB_PASTE_END_LEN;
+                rb_paste_buf[n] = '\0';
+                break;
+            }
+        } else {
+            m = (c == (unsigned char) end[0]) ? 1 : 0;
+        }
+    }
 }
 
 /* 一个逻辑键（含 UTF-8 组装与 ESC 消歧）→ 键码 */
@@ -171,6 +253,17 @@ static Janet rb_cf_read_key(int32_t argc, Janet *argv) {
     (void) argc; (void) argv;
     return janet_wrap_integer(RB_KEY_EOF);
 }
+static Janet rb_cf_size(int32_t argc, Janet *argv) {
+    (void) argc; (void) argv;
+    Janet *t = janet_tuple_begin(2);
+    t[0] = janet_wrap_number(24);
+    t[1] = janet_wrap_number(80);
+    return janet_wrap_tuple(janet_tuple_end(t));
+}
+static Janet rb_cf_paste_text(int32_t argc, Janet *argv) {
+    (void) argc; (void) argv;
+    return janet_cstringv("");
+}
 #endif
 
 int main(int argc, const char **argv) {
@@ -197,6 +290,10 @@ int main(int argc, const char **argv) {
                     janet_wrap_cfunction(rb_cf_raw_off));
     janet_table_put(term, janet_ckeywordv("read-key"),
                     janet_wrap_cfunction(rb_cf_read_key));
+    janet_table_put(term, janet_ckeywordv("size"),
+                    janet_wrap_cfunction(rb_cf_size));
+    janet_table_put(term, janet_ckeywordv("paste-text"),
+                    janet_wrap_cfunction(rb_cf_paste_text));
     janet_table_put(env, janet_ckeywordv("rb-term"), janet_wrap_table(term));
 
     Janet out;

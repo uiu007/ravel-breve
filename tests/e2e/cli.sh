@@ -306,5 +306,42 @@ llm-export \"build/tmp/e2e-leak.json\""
 check "预设：拒绝导出后没留下文件" "yes" \
       "$([ -e build/tmp/e2e-leak.json ] && echo no || echo yes)"
 
+# REQ-64：预制的可发现（--presets / --modes）+ 报错带可用名字（v1.0l）
+check_rc "预设：--presets 列出可用预设" 0 $RAVEL --presets
+check "预设：--presets 有仓库自带三份" "yes" \
+      "$(grep -q 'opencode-go' /tmp/rb-e2e-out && grep -q 'nvidia' /tmp/rb-e2e-out \
+         && grep -q 'mock' /tmp/rb-e2e-out && echo yes || echo no)"
+check "预设：--presets 给出绝对目录（不靠猜）" "yes" \
+      "$(grep -q "^配置预设（/" /tmp/rb-e2e-out && echo yes || echo no)"
+check "预设：--presets 报用户配置文件状态" "yes" \
+      "$(grep -q '用户配置文件：' /tmp/rb-e2e-out && echo yes || echo no)"
+check_rc "预设：--presets 在 RB_CONFIG=- 下也不炸" 0 env RB_CONFIG=- $RAVEL --presets
+$RAVEL --preset nope -e '1' >/dev/null 2>/tmp/rb-e2e-err || true
+check "预设：名字写错时报错列出可用名字" "yes" \
+      "$(grep -q '可用：' /tmp/rb-e2e-err && echo yes || echo no)"
+mkdir -p /tmp/rb-e2e-empty
+check_rc "预设：没有 presets/ 的目录里也不炸（0，并说明找的是哪个目录）" 0 \
+      bash -c "cd /tmp/rb-e2e-empty && RB_CONFIG=- $PWD/bin/ravel --presets"
+check "预设：空目录明说「这个目录里没有」" "yes" \
+      "$(grep -q '这个目录里没有' /tmp/rb-e2e-out && echo yes || echo no)"
+check "预设：打印的绝对是实际目录（/tmp/rb-e2e-empty/presets）" "yes" \
+      "$(grep -q '/tmp/rb-e2e-empty/presets' /tmp/rb-e2e-out && echo yes || echo no)"
+# 坏预设不挡列表：build/tmp/presets/ 里有单测留下的坏夹具（bad / key / unknown / array）
+RABS="$PWD/bin/ravel"
+check_rc "预设：目录里有坏文件时，列表照常（0）" 0 \
+      bash -c "cd build/tmp && RB_CONFIG=- $RABS --presets"
+check "预设：坏文件只影响它那一行" "yes" \
+      "$(grep -q '<读不出来' /tmp/rb-e2e-out && grep -q 'provider=opencode' /tmp/rb-e2e-out \
+         && echo yes || echo no)"
+check_rc "模式：--modes 列出预制模式" 0 $RAVEL --modes
+check "模式：--modes 有 default 与 ptc" "yes" \
+      "$(grep -q 'default' /tmp/rb-e2e-out && grep -q 'ptc' /tmp/rb-e2e-out && echo yes || echo no)"
+check "模式：--modes 带说明与工具" "yes" \
+      "$(grep -q '工具：' /tmp/rb-e2e-out && echo yes || echo no)"
+check_rc "模式：不存在的模式 → 20（mode 词）" 20 $RAVEL -e 'mode "nope"'
+check_rc "core-only：--presets 缺能力 → 60" 60 \
+      build/janet -e '(each f (parse-all (slurp "build/core-only/rb-bundle.janet")) (eval f (curenv)))
+                      (os/exit (rb/cli-main @["--presets"]))' 
+
 echo "端到端：通过 $pass，失败 $fail"
 [ "$fail" -eq 0 ]

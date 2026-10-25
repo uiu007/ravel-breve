@@ -30,9 +30,15 @@ $(BIN)/ravel: src/main.c $(BUILD)/rb_bundle.c $(BUILD)/rb_bundle.h
 	@mkdir -p $(BIN)
 	$(CC) $(CFLAGS) -I$(JANET_DIR) -I$(BUILD) -o $@ src/main.c $(BUILD)/rb_bundle.c $(JANET_C) -lm -ldl -lpthread
 
-# 仅核心（剔除 cap/，REQ-37 验收）
-core-only: | $(BUILD)/janet
-	$(BUILD)/janet tools/embed.janet $(RB_MANIFEST) $(BUILD) --core-only
+# 仅核心（剔除 cap/，REQ-37 验收）。**单独一个目录**：别覆盖 build/ 下的全量 bundle，
+# 否则 test-unit 会拿到无能力层的内核（D-71 顺手修的坑）。
+CORE      := $(BUILD)/core-only
+
+core-only: $(CORE)/rb-bundle.janet
+
+$(CORE)/rb-bundle.janet: tools/embed.janet $(RB_SRCS) $(RB_MANIFEST) | $(BUILD)/janet
+	@mkdir -p $(CORE)
+	$(BUILD)/janet tools/embed.janet $(RB_MANIFEST) $(CORE) --core-only
 
 bundle: $(BUILD)/rb-bundle.janet
 	@echo "已生成 $<"
@@ -43,7 +49,8 @@ test: all test-unit test-e2e test-examples test-core-only
 test-unit: $(BUILD)/rb-bundle.janet
 	RB_LLM=mock RB_CONFIG=- $(BUILD)/janet tests/run.janet
 
-test-e2e: $(BIN)/ravel
+# cli.sh 里有两条「核心无能力层」的验收要读 core-only bundle，所以先建它
+test-e2e: $(BIN)/ravel core-only
 	RB_LLM=mock RB_CONFIG=- bash tests/e2e/cli.sh
 
 # 使用手册里的例程（mock，hermetic）：examples/run-all.sh
@@ -59,10 +66,8 @@ test-oc: $(BIN)/ravel
 	bash tests/e2e/opencode.sh
 
 # 附录 D 验收：剔除 cap/ 后核心仍可独立装载并完成主脊
-test-core-only: | $(BUILD)/janet
-	@mkdir -p $(BUILD)/core-only
-	$(BUILD)/janet tools/embed.janet $(RB_MANIFEST) $(BUILD)/core-only --core-only
-	$(BUILD)/janet tools/core-only-check.janet $(BUILD)/core-only/rb-bundle.janet
+test-core-only: core-only
+	$(BUILD)/janet tools/core-only-check.janet $(CORE)/rb-bundle.janet
 
 check-vendor:
 	@cd $(JANET_DIR) && for f in janet.c janet.h shell.c; do \

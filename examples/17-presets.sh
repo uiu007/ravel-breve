@@ -5,6 +5,7 @@
 #   ① 启动时：`--preset <名字>` / `RB_PRESET` / 用户配置文件（~/.config/ravel/config.json）
 #   ② 运行中：`llm-import` / `llm-export`
 #   ③ 一次性配好：tools/oc-setup.sh（存密钥 + 存配置）
+#   ④ 先看有什么：`ravel --presets`（REQ-64）
 #
 # 本脚本 hermetic（不联网、不写用户家目录）：配置文件一律落在 build/tmp/。
 set -uo pipefail
@@ -65,6 +66,18 @@ step "⑧ 拼错的配置项不会静默无效（31）"
 show $R -e 'llm-import "opencode-go"
 llm-set 1 "max-tokenss"'
 echo "  退出码：$?（期望 31）"
+
+step "⑨ 有哪些预设？—— ravel --presets（v1.0l / REQ-64）"
+$R --presets
+echo "  退出码：$?（期望 0）"
+
+step "⑩ 名字打错也会告诉你有哪几份（不用翻仓库）"
+$R --preset provier -e '1'
+echo "  退出码：$?（期望 40）"
+
+step "⑪ 有哪些处理流程模式？—— ravel --modes"
+$R --modes
+echo "  退出码：$?（期望 0）"
 
 printf '\n例程：失败 %s 个\n' "$fail"
 [ "$fail" -eq 0 ]

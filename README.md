@@ -4,7 +4,7 @@
 
 - **第一次用：读 `QUICKSTART.md`**（10 分钟，只讲跑起来要的那点东西）；完整手册 `docs/GUIDE.md`
 - 命令：`ravel`，脚本扩展名 `.breve`，提示符 `ravel> `
-- 规格（现行）：`ravel-breve-spec-v1.0k.md`（配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
+- 规格（现行）：`ravel-breve-spec-v1.0l.md`（预制的可发现性：REQ-64；配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
   `ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0j.md` 保留为历史（不删改）
 - 许可：**MIT**（见 `LICENSE`）；嵌入的 Janet 1.42.1 亦为 MIT（见 `vendor/janet`）
 - 规格反馈（缺陷/留白）：`docs/SPEC-FEEDBACK.md`
@@ -35,7 +35,7 @@ bash tests/e2e/opencode.sh  # 真 provider 验收（OpenCode Zen/Go；无密钥�
 
 ```sh
 make clean && make
-./bin/ravel -v                         # ravel breve 1.0k · janet 1.42.1
+./bin/ravel -v                         # ravel breve 1.0l · janet 1.42.1
 ./bin/ravel --dump -e 'take 2 "abcde"' # (do (rb/push "abcde") (rb/push 2) (rb/take))
 ./bin/ravel -e 'take 2 "abcde"'        # "ab"
 ./bin/ravel -e 'map [ * 2 ] { 1 2 3 }' # (2 4 6)
@@ -159,13 +159,16 @@ unplug "plugin"                                 # → 3（词 + 钩子 + 工具�
 - **不能新增能力**：能力表只有宿主可写；`--core-only` 下 `plug` 报 60（REQ-37 的边界不变）。
 - 写插件的说明书在 `skills/ravel-breve-plugin/SKILL.md`（核心层 / 用户层分节，附可跑样板）。
 
-## 配置预设（M11 / v1.0k）
+## 配置预设（M11 / v1.0k；查询见 M12 / v1.0l）
 
 配好一个 provider 要四项（provider / 模型 / 上限 / 温度）。**预设**把这件事压成一行，并且能存下来：
 
 ```sh
 ./bin/ravel --preset opencode-go          # 启动即装（预设 = presets/opencode-go.json）
 RB_PRESET=nvidia ./bin/ravel              # 环境变量写法（逗号分隔 = 按序叠加）
+
+./bin/ravel --presets                     # 有哪些预设？名字 / provider / model / 绝对目录
+./bin/ravel --modes                       # 有哪些处理流程模式？名字 / 工具 / 一句说明
 
 # 存到用户配置文件后，下次启动自动生效（stderr 通报一行；--no-config 可关）
 mkdir -p ~/.config/ravel && cp presets/opencode-go.json ~/.config/ravel/config.json
@@ -182,6 +185,8 @@ llm-export ".ravel.json"        # 存回去 → 4（写入项数）
 - **密钥永不进预设**：导出时 `headers` 里带 `Authorization` / `api-key` / `token` / `secret` /
   `cookie` → 60 且不建文件。预设天生要被复制、提交、贴给别人。
 - **只导显式配置**：`endpoint`、`temperature` 之类由环境变量推出来的值不写进预设（那是这台机器的事）。
+- **名字打错不用猜**：报错里直接给可用名字（`（可用：mock nvidia opencode-go）`）；
+  两个查询开关不建工作区、不求值、退出码 `0`（`--core-only` 下 `--presets` 报 60）。
 - 一键配好 OpenCode Go：`tools/oc-setup.sh sk-xxxx`（密钥 → `secrets/opencode.key` chmod 600 +
   预设 → `~/.config/ravel/config.json`；已有密钥**拒绝覆盖**，`--force` 会先留 `.bak`）。
 

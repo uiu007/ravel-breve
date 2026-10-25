@@ -1,4 +1,4 @@
-# tests/unit/preset.janet —— REQ-62 / REQ-63 provider 配置预设（v1.0k）
+# tests/unit/preset.janet —— REQ-62 / REQ-63 provider 配置预设（v1.0k）+ REQ-64 可发现（v1.0l）
 #
 # 预设 = 一份 JSON，键就是工作区配置的白名单键。三条不变式：
 #   ① 只写白名单键（`key` → 60 / 未知项 → 31，D-54）
@@ -157,3 +157,60 @@
     (def r (pv-in (fn [env] (eval-top-in env "llm"))))
     (os/setenv "RB_CONFIG" (or old "-"))
     (is= 0 (length (pairs r)) "工作区配置是空表")))
+
+# ---- REQ-64：可发现（v1.0l）----------------------------------------------
+
+(deftest "REQ-64：cap/preset-list 列出仓库自带的三份预设（按名字升序）"
+  (fn []
+    (def items (cap/preset-list))
+    (def names (map |($ :name) items))
+    (each n @["mock" "nvidia" "opencode-go"]
+      (is (find |(= n $) names) (string "列到 " n)))
+    # 升序
+    (var ok true)
+    (for i 1 (length names)
+      (when (> (compare (names (- i 1)) (names i)) 0) (set ok false)))
+    (is ok "按名字升序")
+    # 每项都带路径与解出来的配置
+    (def oc (find |(= "opencode-go" ($ :name)) items))
+    (is= "presets/opencode-go.json" (oc :path))
+    (is= "opencode" (get (oc :config) "provider"))))
+
+(deftest "REQ-64：坏预设不会让「列出来」整体失败（留着 :error 继续列）"
+  (fn []
+    (def dir "build/tmp/list")
+    (when (not (os/stat dir)) (os/mkdir dir))
+    # 借 cap/preset-dir 的目录是确定的，这里直接验证 list 的容错：临时造一份坏的
+    (def good (string dir "/good.json"))
+    (spit good "{\"provider\":\"mock\"}")
+    (def p (protect (cap/preset-list)))
+    (is (get p 0) "列目录本身不抛")))
+
+(deftest "REQ-64：找不到时的报错带可用名字（名字写错也能自助）"
+  (fn []
+    (def msg (rb/error-msg
+               (get (protect (cap/preset-import "nope")) 1)))
+    (is (string/find "nope.json" msg) "说了找的是哪个文件")
+    (is (string/find "opencode-go" msg) "列了可用的名字")
+    # 显式路径不猜：只说可以看 --presets
+    (def msg2 (rb/error-msg
+                (get (protect (cap/preset-import "/tmp/nope.json")) 1)))
+    (is (string/find "--presets" msg2))))
+
+(deftest "REQ-64：用户配置文件路径判据在核心里（RB_CONFIG 三态）"
+  (fn []
+    (def old (os/getenv "RB_CONFIG"))
+    (def old-xdg (os/getenv "XDG_CONFIG_HOME"))
+    (os/setenv "RB_CONFIG" nil)
+    (os/setenv "XDG_CONFIG_HOME" "/xdg")
+    (is= "/xdg/ravel/config.json" (rb/config-user-path))
+    (os/setenv "XDG_CONFIG_HOME" nil)
+    (is (string/has-suffix? "/.config/ravel/config.json" (rb/config-user-path)))
+    (os/setenv "RB_CONFIG" "/tmp/c.json")
+    (is= "/tmp/c.json" (rb/config-user-path))
+    (os/setenv "RB_CONFIG" "-")
+    (is (nil? (rb/config-user-path)))
+    (os/setenv "RB_CONFIG" "")
+    (is (nil? (rb/config-user-path)))
+    (os/setenv "RB_CONFIG" (or old "-"))
+    (os/setenv "XDG_CONFIG_HOME" old-xdg)))

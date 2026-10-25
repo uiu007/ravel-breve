@@ -50,6 +50,28 @@ $ make test        → 326 单元/符合性 + 94 端到端 + 11 例程 + core-on
 # v1.0i（REQ-58/59）后：378 单元/符合性 + 103 端到端 + 15 例程 + core-only 全绿
 # v1.0j（REQ-60/61）后：391 单元/符合性 + 103 端到端 + 16 例程 + core-only 全绿
 # v1.0k（REQ-62/63）后：402 单元/符合性 + 121 端到端 + 17 例程 + core-only 全绿
+# v1.0l（预制的可发现性）后：412 单元/符合性 + 137 端到端 + 17 例程 + core-only 全绿
+
+```
+$ make test
+测试：412  通过：412  失败：0
+端到端：通过 137，失败 0
+例程：失败 0 个
+core-only: 通过（核心可独立装载并完成主脊）
+```
+
+## v1.0l / REQ-64 人工验收（只看输出，不需要终端）
+
+| # | 命令 | 期望 |
+|---|---|---|
+| 1 | `./bin/ravel --presets` | 三份预设（mock / nvidia / opencode-go）+ **绝对目录** + 用户配置状态 + 用法；退出码 `0` |
+| 2 | `./bin/ravel --presets` 里某份预设写坏 | 该行 `<读不出来：…>`，其余照列；退出码 `0` |
+| 3 | `./bin/ravel --preset provier -e 1` | 退出码 `40`，报错带 `（可用：mock nvidia opencode-go…）` |
+| 4 | `./bin/ravel --modes` | `default`（edit glob grep shell）与 `ptc`（eval）各带一句说明；退出码 `0` |
+| 5 | 在没有 `presets/` 的目录里跑 `--presets` | 退出码 `0`；打印**实际找的绝对目录** + 「这个目录里没有 .json 预设」+ 一句「预设目录是相对当前目录的」以及改用用户配置文件的建议 |
+| 5b | 在 `build/tmp`（有单测留下的坏夹具）里跑 `--presets` | 退出码 `0`；坏文件只显示 `<读不出来：原因>`，`one` / `user` 等好文件照常列出 |
+| 6 | `--core-only` 构建跑 `--presets` | 退出码 `60`，stderr 说明缺能力层；`--modes` 照常 `0` |
+
 # D-70（长行重绘 / 括号粘贴）后：408 单元/符合性 + 121 端到端 + 17 例程 + core-only 全绿
 $ make test-agent  → 真 NVIDIA 14/0（不进 make test）
 ```

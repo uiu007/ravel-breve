@@ -80,3 +80,22 @@
   (if rb/llm-resolve
     (rb/llm-resolve key)
     (get (rb/config) key)))
+
+(defn rb/config-user-path
+  "用户配置文件路径（REQ-63）：`RB_CONFIG` > `$XDG_CONFIG_HOME/ravel/config.json` >
+   `~/.config/ravel/config.json`。`RB_CONFIG` 为空串或 `-` = 显式关闭 → nil。
+
+   放在核心里（不在 cap/preset.janet）是因为它**只读环境变量**、不碰文件，
+   `--presets` / `--no-config` 的说明与能力层的装载顺序要用同一个答案（D-71）。"
+  []
+  (def raw (os/getenv "RB_CONFIG"))
+  (cond
+    (and raw (or (empty? raw) (= raw "-"))) nil
+    (and raw (not (empty? raw))) raw
+    (do
+      (def xdg (os/getenv "XDG_CONFIG_HOME"))
+      (def base (if (and xdg (not (empty? xdg)))
+                  xdg
+                  (string (or (os/getenv "HOME") "") "/.config")))
+      (string base "/ravel/config.json"))))
+

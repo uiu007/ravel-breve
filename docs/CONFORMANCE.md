@@ -1,8 +1,8 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0k.md`**（provider 配置预设）；
-`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0j.md` 为历史原文。
-状态：**M11**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+依据规格：**`ravel-breve-spec-v1.0l.md`**（预制的可发现性）；
+`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0k.md` 为历史原文。
+状态：**M12**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
 > v1.0d 新增 **REQ-47…REQ-51**（见文末）；**v1.0e 不新增 REQ**（只把 SF-14…SF-35 冻结，见其附录 I）；
@@ -11,7 +11,8 @@
 > **v1.0h 新增 REQ-55 / REQ-56 / REQ-57**（用量记账、取消与传播、流截止时间，见其 §4.15 与附录 M）；
 > **v1.0i 新增 REQ-58 / REQ-59**（自定义请求头、模型列表与自动配置，见其 §4.16 与附录 N）；
 > **v1.0j 新增 REQ-60 / REQ-61**（插件装载卸载、插件编写 skills 的分层，见其 §4.17 与附录 O）；
-> **v1.0k 新增 REQ-62 / REQ-63**（配置预设的导入导出、启动装载，见其 §4.18 与附录 P）。
+> **v1.0k 新增 REQ-62 / REQ-63**（配置预设的导入导出、启动装载，见其 §4.18 与附录 P）；
+> **v1.0l 新增 REQ-64**（预制的可发现性，见其 §4.19 与附录 Q）。
 
 跑法：`make test`（单元 + 符合性 + 端到端 + 附录 D）。
 
@@ -323,3 +324,11 @@ D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
 | REQ-63 | 启动装载：用户配置文件（`RB_CONFIG` 或 `~/.config/ravel/config.json`，存在才装、`-` 关闭）→ `RB_PRESET` → `--preset`（按序覆盖）；在 `rb/new-env` 里先于插件装载；stderr 通报一行；失败即终止启动；测试一律 `RB_CONFIG=-` | ✅ | `unit/preset.janet`（2 条）、`e2e/cli.sh`（`--preset` / `RB_PRESET` / 通报 / `--no-config`）、`examples/17-presets.sh` |
 
 决策记录：D-69（配置预设）。
+
+## v1.0l 新增 REQ（64）
+
+| REQ | 内容 | 状态 | 测试 |
+|---|---|---|---|
+| REQ-64 | 预制的可发现性：`ravel --presets`（名字 / provider / model / **绝对目录** / 用户配置文件状态）与 `ravel --modes`（名字 / 工具 / 一句说明）；均**只读**（不建工作区、不求值、不装载）、退出码 `0`；空目录仍 `0`；坏预设只影响它那一行；`--core-only` 下 `--presets` → 60、`--modes` 照常；找不到预设时**报错附可用名字**（显式路径只提 `--presets`）；**搜索路径不变**（不做多路径搜索） | ✅ | `unit/preset.janet`（4 条：列表/排序、容错、报错带名字、用户配置路径判据）、`e2e/cli.sh`（13 条：两个开关的 rc 与输出、空目录与坏文件、报错文案、`--core-only` 60）、`examples/17-presets.sh`（⑨⑩⑪） |
+
+决策记录：D-71（可发现性与搜索路径）。

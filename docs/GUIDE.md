@@ -65,7 +65,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0k · janet 1.42.1
+ravel breve 1.0l · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -191,7 +191,7 @@ show'
 | 差别 | 做法 |
 |---|---|
 | 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
-| 必须自称客户端 | `User-Agent: ravel-breve/1.0k`（**不许**用通用 SDK 名）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0l`（**不许**用通用 SDK 名）|
 | 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
 
 另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
@@ -1567,6 +1567,38 @@ mock.json  nvidia.json  opencode-go.json
 { "provider": "opencode", "model": "deepseek-v4.1-flash", "max-tokens": 1024, "temperature": 0.2 }
 ```
 
+#### 先看有什么（`--presets` / `--modes`，v1.0l）
+
+「有哪些预设、装的是什么、在哪个目录」不用翻仓库：
+
+```
+$ ./bin/ravel --presets
+配置预设（/home/u/project/RavelBreve/presets）：
+  mock           provider=mock       model=mock
+  nvidia         provider=nvidia     model=meta/llama-3.2-11b-vision-instruct
+  opencode-go    provider=opencode   model=deepseek-v4.1-flash
+用户配置文件：已关闭（RB_CONFIG=- / --no-config）
+用法：ravel --preset <名字>  或  ravel --preset presets/<名字>.json（相对当前目录）
+
+$ ./bin/ravel --modes
+处理流程模式：
+  default    工具：edit glob grep shell
+             缺省：收尾钩子把流合并进会话，工具调用自动执行（REQ-18 / REQ-48）
+  ptc        工具：eval
+             仿 DeepSeek harness 的 PTC：模型提交程序，程序里 invoke 工具；只有一个 eval 工具
+用法：mode "<名字>"（在方言里切换；`modes` 词也一样能列名字）
+```
+
+- 两个开关都是**只读查询**：不建工作区、不求值、不装载任何预设，**输出即结果**，退出码 `0`。
+- 目录里没有 `.json` 也返回 `0`（并明说"这个目录里没有"）；某份预设**写坏了**只影响它那一行
+  （显示 `<读不出来：原因>`），其余照列——一本目录里有一页坏了，不该导致整本书不能查。
+- `--core-only` 下 `--presets` → **60**（那时没有能力层、没有 JSON）；`--modes` 属核心，照常可用。
+- **名字打错不用猜**：报错直接给可用名字
+  （`预设文件不存在或无权限：presets/provier.json（可用：mock nvidia opencode-go）`）。
+- **搜索路径没有变**（v1.0l 明确"不做多路径搜索"）：名字仍只查 `presets/<名字>.json`（相对当前目录）。
+  要在任何目录都能用，就把配置放进用户配置文件（REQ-63）而不是加搜索路径——
+  隐式搜索路径会制造"到底装的是哪一份"的歧义。
+
 #### 三种用法
 
 **① 启动时一键装**（最省事）：
@@ -1656,7 +1688,7 @@ $ tools/oc-setup.sh --local             # 不想写家目录：配置写 ./.rave
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0k · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0l · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -1864,10 +1896,10 @@ ravel> ()
 | L9b 插件 | `plug` `plugins` `unplug` |
 | provider 配置 | `llm` `llm-get` `llm-set` `llm-models` `llm-auto` `llm-import` `llm-export` |
 
-完整栈效应见 `ravel-breve-spec-v1.0k.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
+完整栈效应见 `ravel-breve-spec-v1.0l.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
 （v1.0e 已把 SF-14…SF-35 冻结；v1.0f 加 REQ-52 处理流程层；v1.0g 加沙箱与默认工具；
 v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型列表；
-v1.0j 加插件 ABI 与 skills；v1.0k 加配置预设与启动装载）。
+v1.0j 加插件 ABI 与 skills；v1.0k 加配置预设与启动装载；v1.0l 加预制的可发现性）。
 
 ---
 

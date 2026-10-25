@@ -3,7 +3,7 @@
 **用波兰式书写、跑在栈机上**的 agent 会话编排语言（宿主 Janet，命令 `ravel`，脚本 `.breve`）。
 
 本页只讲「让它跑起来、写出第一个能用的脚本」所要的那点东西，约 10 分钟。
-其余的当参考书查：完整手册 `docs/GUIDE.md`，规格 `ravel-breve-spec-v1.0k.md`。
+其余的当参考书查：完整手册 `docs/GUIDE.md`，规格 `ravel-breve-spec-v1.0l.md`。
 
 ---
 
@@ -134,10 +134,20 @@ greet "世界"                   # "你好，世界"
 配置有四项：provider / 模型 / 上限 / 温度。**预设**把它们压成一行：
 
 ```sh
+./bin/ravel --presets                                  # 先看有哪些（名字 / provider / model / 目录）
 ./bin/ravel --preset opencode-go                       # OpenCode Go
 ./bin/ravel --preset nvidia                            # NVIDIA
 RB_PRESET=opencode-go ./bin/ravel                      # 环境变量写法（逗号分隔可叠加）
 ```
+
+名字打错也会告诉你有哪些：
+
+```sh
+./bin/ravel --preset provier -e '1'
+# ravel: 预设文件不存在或无权限：presets/provier.json（可用：mock nvidia opencode-go；`ravel --presets` 看全部）
+```
+
+> `presets/` 是**相对当前目录**的（不是搜遍全盘）：所以要在任何目录都能用，请走下面的用户配置文件。
 
 存成用户配置，以后**每次启动自动生效**（stderr 通报一行，`--no-config` 可关）：
 
@@ -168,6 +178,14 @@ export OPENCODE_API_KEY=sk-...                # 或 NVIDIA_API_KEY
 ```sh
 ./tools/oc-setup.sh sk-...            # 密钥 → secrets/opencode.key，预设 → ~/.config/ravel/config.json
 ./tools/oc-setup.sh --verify sk-...   # 顺手拉一次模型列表
+```
+
+处理流程模式（`mode` 词能换的那套）也一样能查：
+
+```sh
+./bin/ravel --modes
+# default    工具：edit glob grep shell
+# ptc        工具：eval
 ```
 
 离线试玩就不用密钥：`RB_LLM=mock ./bin/ravel`。本页后续的例子都假设 mock 或已配好。
@@ -294,5 +312,5 @@ invoke "add2" H{ "a" 40 }      # 42（不经模型，直接调）
 | 前端（`--serve` 协议）| `docs/GUIDE.md` §15、`docs/PROTOCOL.md` |
 | 写插件 | `skills/ravel-breve-plugin/SKILL.md` |
 | 可跑的成套例程 | `examples/`（`./examples/run-all.sh`）|
-| 规格条文（REQ / 退出码 / 词表）| `ravel-breve-spec-v1.0k.md` 附录 A、E |
+| 规格条文（REQ / 退出码 / 词表）| `ravel-breve-spec-v1.0l.md` 附录 A、E |
 | 词表速查 | `docs/GUIDE.md` §19 |

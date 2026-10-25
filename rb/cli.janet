@@ -14,8 +14,8 @@
 # 保留名表**不得**与词表重名（REQ-09：一个名字只有一种词性）——`watch` 是方言词
 # （L9），所以它不在这里。
 
-(def rb/version "1.0k")
-(def rb/version-string "ravel breve 1.0k · janet 1.42.1")
+(def rb/version "1.0l")
+(def rb/version-string "ravel breve 1.0l · janet 1.42.1")
 
 # REQ-25：保留的元命令名（无前缀裸词，均不是方言词）
 (def rb/meta-commands
@@ -37,6 +37,8 @@
   (print "  ravel --dump ...          打印转译产物（REQ-31）")
   (print "  ravel --json ...          按协议消息形状输出（REQ-22）")
   (print "  ravel --preset <名字>     启动即导入 provider 配置预设（REQ-62，可重复）")
+  (print "  ravel --presets           列出可用的配置预设（REQ-64）")
+  (print "  ravel --modes             列出预制的处理流程模式（REQ-64）")
   (print "  ravel --no-config         不装载 ~/.config/ravel/config.json（REQ-63）")
   (print "  ravel -v | -h"))
 
@@ -289,6 +291,69 @@
   (set rb/event-tap nil)
   exit)
 
+# ---- 预制的可发现（REQ-64）----------------------------------------------
+
+# 预设目录。同名字面量在 cap/preset.janet 里有一份（`cap/preset-dir`）：
+# 核心不能引用 cap/ 的符号（REQ-37 / D-29），所以这里各留一份，改一处要改两处。
+(def rb/cli-preset-dir "presets")
+
+(defn rb/cli-show-presets
+  "列出可用的 provider 配置预设 + 用户配置文件状态。返回退出码。
+
+   缺能力层（`--core-only`）不是「选项写错」，是**这一层没带**：报 60（REQ-37），
+   和 `llm-import` 在核心构建里的处置一致。"
+  []
+  (def f (rb/cap-get :llm/presets))
+  (if (nil? f)
+    (do (eprintf "ravel: --presets 需要能力层 cap/preset（REQ-37；--core-only 下没有预设）\n")
+        (rb/exit-table :orchestration-base))
+    (do
+      (def items (f))
+      # 目录可能不存在（在别的目录里跑就是这个下场）：realpath 会抛，这里退成 cwd+相对路径，
+      # 让「找的是哪个目录」照样是绝对的（D-71）
+      (def dir
+        (do
+          (def rp (protect (os/realpath rb/cli-preset-dir)))
+          (if (get rp 0)
+            (get rp 1)
+            (do
+              (def cwd (os/cwd))
+              (if (string/has-suffix? "/" cwd)
+                (string cwd rb/cli-preset-dir)
+                (string cwd "/" rb/cli-preset-dir))))))
+      (printf "配置预设（%s）：" dir)
+      (if (empty? items)
+        (do (printf "  （这个目录里没有 .json 预设）")
+            (printf "  预设目录是相对当前目录的：在仓库根目录跑，或 ravel --preset <绝对路径>")
+            (printf "  想「到处都能用」请把配置放进用户配置文件（RB_CONFIG 或 ~/.config/ravel/config.json）"))
+        (each it items
+          (def c (it :config))
+          (if (nil? c)
+            (printf "  %-14s <读不出来：%s>" (it :name) (or (it :error) "?"))
+            (printf "  %-14s provider=%-10s model=%s"
+                    (it :name) (or (get c "provider") "-") (or (get c "model") "-")))))
+      (def user (rb/config-user-path))
+      (cond
+        (nil? user) (printf "用户配置文件：已关闭（RB_CONFIG=- / --no-config）")
+        (os/stat user) (printf "用户配置文件：%s（启动时自动装载）" user)
+        (do (printf "用户配置文件：%s（不存在，跳过）" user)))
+      (printf "用法：ravel --preset <名字>  或  ravel --preset presets/<名字>.json（相对当前目录）")
+      0)))
+
+(defn rb/cli-show-modes
+  "列出预制的处理流程模式（名字 / 说明 / 工具）。返回退出码。"
+  []
+  (def ms (rb/mode-presets))
+  (def names (sort (keys ms)))
+  (printf "处理流程模式：")
+  (each n names
+    (def m (ms n))
+    (def tools (sort (keys (or (m :tools) @{}))))
+    (printf "  %-10s 工具：%s" n (if (empty? tools) "—" (string/join tools " ")))
+    (printf "  %-10s %s" "" (or (m :doc) "")))
+  (printf "用法：mode \"<名字>\"（在方言里切换；`modes` 词也一样能列名字）")
+  0)
+
 # ---- 入口 ---------------------------------------------------------------
 
 (defn rb/cli-main
@@ -334,6 +399,13 @@
       # REQ-63：显式关掉用户配置文件（`RB_CONFIG=-` 的等价写法）
       (= a "--no-config")
       (do (os/setenv "RB_CONFIG" "-") (++ i))
+
+      # REQ-64：不启动工作区，只把「有什么可用」打出来（输出即结果，不是诊断）
+      (= a "--presets")
+      (do (set exit (rb/cli-show-presets)) (set done? true) (++ i))
+
+      (= a "--modes")
+      (do (set exit (rb/cli-show-modes)) (set done? true) (++ i))
 
       (string/has-prefix? "-" a)
       (do (eprintf "ravel: 未知选项 %s\n" a) (set exit (rb/exit-table :usage)))

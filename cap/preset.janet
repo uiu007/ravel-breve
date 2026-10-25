@@ -80,6 +80,40 @@
               (string "预设不是合法 JSON：" path "（" (rb/error-msg (get p 1)) "）")))
   (cap/preset-check (get p 1) path))
 
+(defn cap/preset-list
+  "列出可用的配置预设（按名字升序，REQ-64）。每项 `@{:name :path :config}`；
+   文件读不动/不是合法预设的项留 `:error` 而不是整体失败——「列出来」这件事
+   不该被一份坏预设挡住。"
+  []
+  (def dec (cap/preset-cap :json/decode "列出预设需要 :json/decode"))
+  (def out @[])
+  (def files (protect (os/dir cap/preset-dir)))
+  (when (get files 0)
+    (each f (get files 1)
+      (when (and (string? f) (string/has-suffix? ".json" f))
+        (def path (string cap/preset-dir "/" f))
+        (def item @{:name (string/slice f 0 (- (length f) 5)) :path path})
+        (def p (protect (cap/preset-parse (string (slurp path)) path)))
+        (if (get p 0)
+          (put item :config (get p 1))
+          (put item :error (rb/error-msg (get p 1))))
+        (array/push out item))))
+  (sort out (fn [a b] (< (compare (a :name) (b :name)) 0))))
+
+(defn cap/preset-hint
+  "给「找不到」的报错补一句可用名字。只对 `presets/<名字>.json` 生效——
+   用户给的是显式路径时不猜他要哪份。"
+  [path]
+  (def pre (string cap/preset-dir "/"))
+  (def p (protect (cap/preset-list)))
+  (def names (if (get p 0)
+               (map |($ :name) (get p 1))
+               @[]))
+  (if (and (string/has-prefix? pre path) (not (empty? names)))
+    (string "（可用：" (string/join names " ")
+            "；`ravel --presets` 看全部）")
+    (string "（`ravel --presets` 看全部）")))
+
 (defn cap/preset-slurp
   "直接读文件（不走沙箱）：**只给启动装载用**——那时还没有任何方言程序在跑，
    而用户配置天然在沙箱外（`~/.config/ravel/config.json`），与密钥文件同一个道理。"
@@ -88,7 +122,7 @@
   (if (get p 0)
     (string (get p 1))
     (rb/raise (rb/exit-table :io-read)
-              (string "预设文件不存在或无权限：" path))))
+              (string "预设文件不存在或无权限：" path (cap/preset-hint path)))))
 
 (defn cap/preset-read
   "读一个预设文件 → 表。方言里的 `llm-import` 走这里：经 `:fs/read`，**受沙箱约束**（REQ-53）。"
@@ -97,7 +131,8 @@
   (def text (read path))
   (when (nil? text)
     (rb/raise (rb/exit-table :io-read)
-              (string "预设文件不存在或无权限（沙箱只允许当前目录，REQ-53）：" path)))
+              (string "预设文件不存在或无权限（沙箱只允许当前目录，REQ-53）：" path
+                      (cap/preset-hint path))))
   (cap/preset-parse text path))
 
 (defn cap/preset-apply
@@ -152,19 +187,9 @@
 # ---- 启动装载（REQ-63）--------------------------------------------------
 
 (defn cap/preset-user-path
-  "用户配置文件路径：`RB_CONFIG` > `$XDG_CONFIG_HOME/ravel/config.json` > `~/.config/ravel/config.json`。
-   `RB_CONFIG` 为空串或 `-` = 显式关闭（测试用，见 Makefile）。"
+  "用户配置文件路径——判据在核心（`rb/config-user-path`，D-71），能力层只负责读它。"
   []
-  (def raw (os/getenv "RB_CONFIG"))
-  (cond
-    (and raw (or (empty? raw) (= raw "-"))) nil
-    raw raw
-    (do
-      (def xdg (os/getenv "XDG_CONFIG_HOME"))
-      (def base (if (and xdg (not (empty? xdg)))
-                  xdg
-                  (string (or (os/getenv "HOME") "") "/.config")))
-      (string base "/ravel/config.json"))))
+  (rb/config-user-path))
 
 (defn cap/preset-startup
   "`rb/new-env` 调：用户配置 → `RB_PRESET`（逗号）→ `rb/config-presets`（`--preset`，按序）。
@@ -192,5 +217,6 @@
 # 间接层接线（D-29）：rb/eval.janet 的 `rb/new-env` 里调用
 (set rb/config-startup cap/preset-startup)
 
+(rb/cap-put :llm/presets cap/preset-list)
 (rb/cap-put :llm/import cap/preset-import)
 (rb/cap-put :llm/export cap/preset-export)

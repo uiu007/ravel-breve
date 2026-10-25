@@ -240,3 +240,46 @@ invoke "shell" H{ "cmd" "echo ok" }'                            # "ok
 - `read_image`（要先给 `Utter` 加内容部件）与 `fs-observation-policy`（"先读后改"的硬约束）——
   同 §5.2，本版未做。
 - 多路径预设搜索（D-71 明确不做）。
+
+---
+
+## 7. v1.0o 追记：工具的参数（D-74 / REQ-68）
+
+用户实测（OpenCode / DeepSeek）：模型把 `shell` 的参数写成 `{"command": …}`，
+工具报「缺少参数 cmd」，**整轮以 60 收场**。根因三层：请求里 `parameters` 是空壳（模型只能猜）、
+参数名只有短名（`cmd` / `path` / `old`）、失败不分账（模型手误与环境拒绝同码）。
+处置见 D-74 / SF-40；规格 v1.0o §4.12 / §4.14 + 附录 U。
+
+### 7.1 八步人工验收
+
+```
+# ① 别名：模型写 command 也照跑
+RB_MOCK_TOOL='shell:{"command":"echo hi"}' RB_LLM=mock ./bin/ravel -e '…'   # 会话里有 "hi\n"
+
+# ② 错到底：错误回给模型，本轮成功
+RB_MOCK_TOOL='read:{"pth":"README.md"}' RB_LLM=mock ./bin/ravel -e '…'      # 退出码 0
+
+# ③ 脚本路径仍是 60
+./bin/ravel -e 'invoke "read" H{ "pth" "README.md" }'
+
+# ④ 工具名写错同理（模型路径回话，脚本 60）
+RB_MOCK_TOOL='shel:{"cmd":"echo hi"}' …
+```
+
+| # | 手工动作 | 期望 |
+|---|---|---|
+| 1 | 看请求里的 `parameters`（`rb/tool-defs`） | 有 `properties` 与 `required`，不再是空壳 |
+| 2 | 工具描述里 | 每个参数都标「别名：…」|
+| 3 | 模型发 `shell {"command": …}` | 成功，`shell` 真的跑了 |
+| 4 | 模型发 `read {"pth": …}` | 本轮**成功**；会话里 `tool` 消息以「错误：」开头并列出「接受：…」|
+| 5 | 模型发 `shel {"cmd": …}` | 同上（未知工具也是手误）|
+| 6 | `invoke "read" H{ "pth" … }` | `60`，错误里有「接受：」|
+| 7 | `invoke "read" H{ "path" "/etc/shadow" }` | `60`（环境侧失败不分账）|
+| 8 | `./bin/ravel -v` / `make test` | `ravel breve 1.0o · janet 1.42.1`；427 + 156 + 18 + core-only 全绿 |
+
+### 7.2 仍然留给用户裁决
+
+- 更细的 schema（`enum` / `oneOf` / `pattern`）：当前不做（`properties` + `required` 已够，
+  且危险命令的约束该在权限层，不该在 schema 里）。
+- `deftool` 的用户工具是否也要参数模式：目前只有可选第四参给**能力层/模式**用；
+  方言词 `deftool` 仍是三个参数（用户工具的体自己 `at`），要不要开放为第四个参数待定。

@@ -15,9 +15,12 @@
   (get ((rb/ws) :tools) name))
 
 (defn rb/tool-register!
-  "注册/覆盖一个工具（REQ-48 的 `deftool`）。"
-  [name desc fn]
-  (put ((rb/ws) :tools) name @{:desc desc :fn fn})
+  "注册/覆盖一个工具（REQ-48 的 `deftool`）。
+   第四个参数可选：给模型的**参数模式**（JSON Schema，REQ-68）；缺省 = 不写形状。"
+  [name desc fn &opt params]
+  (put ((rb/ws) :tools) name (if params
+                               @{:desc desc :fn fn :params params}
+                               @{:desc desc :fn fn}))
   nil)
 
 (defn rb/tool-names
@@ -71,18 +74,32 @@
                     @{:type "function"
                       :function @{:name name
                                   :description (d :desc)
-                                  :parameters @{:type "object"
-                                                :additionalProperties true}}}))
+                                  # 参数**模式**要写真（REQ-68）：空壳 `additionalProperties`
+                                  # 等于让模型猜参数名，猜错就报废一整轮。
+                                  :parameters (or (d :params)
+                                                  @{:type "object"
+                                                    :additionalProperties true})}}))
       (tuple ;out))))
+
+(defn rb/tool-arg-fail
+  "抛一个**参数错误**（REQ-68）：带 `:rb-arg` 标记。
+   为什么单独一类：参数名写错是**模型的手误**，把整轮以 60 报废太贵——
+   工具循环会把它当成 `role \"tool\"` 的结果回给模型（模型能自己改），
+   而 `invoke`/脚本路径仍按编排级 60 报错（没人替程序员改）。"
+  [msg &opt name]
+  (error @{:rb-code (rb/exit-table :orchestration-base)
+           :rb-msg msg
+           :rb-tool name
+           :rb-arg true}))
 
 (defn rb/tool-run
   "调用工具本体：`args` 压栈 → 运引号 → 取栈顶为结果，栈回到调用前深度。
-   未注册 / 本体失败 → 60（编排级，REQ-48）。"
+   未注册 / 本体失败 → 60（编排级，REQ-48）；参数错误带 `:rb-arg`（REQ-68）。"
   [name args]
   (def d (rb/tool-get name))
   (when (nil? d)
-    (rb/raise (rb/exit-table :orchestration-base)
-              (string "未注册的工具：" name "（先 deftool 注册，REQ-48）")))
+    (rb/tool-arg-fail (string "未注册的工具：" name "（先 deftool 注册，REQ-48；名字或参数见工具定义）")
+                      name))
   (def body (d :fn))
   (when (not (function? body))
     (rb/raise (rb/exit-table :orchestration-base)
@@ -96,8 +113,10 @@
   (rb/stack-truncate d0)
   (if ok
     top
-    (rb/raise (rb/exit-table :orchestration-base)
-              (string "工具失败：" name "：" (rb/error-msg v)))))
+    (if (and (dictionary? v) (get v :rb-arg))
+      (rb/tool-arg-fail (string "工具失败：" name "：" (rb/error-msg v)) name)
+      (rb/raise (rb/exit-table :orchestration-base)
+                (string "工具失败：" name "：" (rb/error-msg v))))))
 
 (defn rb/tool-encode
   "工具结果 → 追加进会话的 `tool` 消息内容（JSON 文本，经能力层）。"
@@ -125,10 +144,22 @@
   (def call (rb/pop))
   (when (= (call :kind) :tool-call)
     (def a (rb/agent-ensure (call :agent)))
-    (def v (rb/tool-run (call :name) (call :arguments)))
-    (rb/agent-append! a @{:role "tool"
-                           :content (rb/tool-encode v)
-                           :tool-call-id (call :id)})
+    (def p (protect (rb/tool-run (call :name) (call :arguments))))
+    (def ok (get p 0))
+    (def v (get p 1))
+    (if ok
+      (rb/agent-append! a @{:role "tool"
+                             :content (rb/tool-encode v)
+                             :tool-call-id (call :id)})
+      (if (and (dictionary? v) (get v :rb-arg))
+        # REQ-68：模型的手误（参数名 / 工具名）作为**工具结果**回给它，回合继续。
+        # 不这么做的话，一次 `command` 写成 `cmd` 就换来整轮 `@RoundDone 失败`。
+        (rb/agent-append! a @{:role "tool"
+                               :content (string "错误：" (rb/error-msg v)
+                                                "\n（参数名不对。工具定义里写了可接受的键，改正后再调用。）")
+                               :tool-call-id (call :id)})
+        (rb/raise (rb/exit-table (if (rb/rb-error? v) (v :rb-code) :orchestration-base))
+                  (rb/error-msg v))))
     (put call :done true))
   nil)
 

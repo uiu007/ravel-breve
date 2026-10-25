@@ -3,7 +3,7 @@
 **用波兰式书写、跑在栈机上**的 agent 会话编排语言（宿主 Janet，命令 `ravel`，脚本 `.breve`）。
 
 本页只讲「让它跑起来、写出第一个能用的脚本」所要的那点东西，约 10 分钟。
-其余的当参考书查：完整手册 `docs/GUIDE.md`，规格 `ravel-breve-spec-v1.0n.md`。
+其余的当参考书查：完整手册 `docs/GUIDE.md`，规格 `ravel-breve-spec-v1.0o.md`。
 
 ---
 
@@ -320,5 +320,5 @@ invoke "add2" H{ "a" 40 }      # 42（不经模型，直接调）
 | 前端（`--serve` 协议）| `docs/GUIDE.md` §15、`docs/PROTOCOL.md` |
 | 写插件 | `skills/ravel-breve-plugin/SKILL.md` |
 | 可跑的成套例程 | `examples/`（`./examples/run-all.sh`）|
-| 规格条文（REQ / 退出码 / 词表）| `ravel-breve-spec-v1.0n.md` 附录 A、E |
+| 规格条文（REQ / 退出码 / 词表）| `ravel-breve-spec-v1.0o.md` 附录 A、E |
 | 词表速查 | `docs/GUIDE.md` §19 |

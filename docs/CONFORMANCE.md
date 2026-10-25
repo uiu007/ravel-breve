@@ -1,8 +1,8 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0n.md`**（模式的设定）；
-`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0m.md` 为历史原文。
-状态：**M15**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+依据规格：**`ravel-breve-spec-v1.0o.md`**（工具的参数）；
+`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0n.md` 为历史原文。
+状态：**M16**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
 > v1.0d 新增 **REQ-47…REQ-51**（见文末）；**v1.0e 不新增 REQ**（只把 SF-14…SF-35 冻结，见其附录 I）；
@@ -13,6 +13,8 @@
 > **v1.0j 新增 REQ-60 / REQ-61**（插件装载卸载、插件编写 skills 的分层，见其 §4.17 与附录 O）；
 > **v1.0k 新增 REQ-62 / REQ-63**（配置预设的导入导出、启动装载，见其 §4.18 与附录 P）；
 > **v1.0l 新增 REQ-64**（预制的可发现性，见其 §4.19 与附录 Q）；
+> **v1.0o 新增 REQ-68**（工具的参数形状、别名、模型手误回给模型，见其 §4.14 与附录 U），
+> 并随之修订 REQ-48 / REQ-54；依据规格 `ravel-breve-spec-v1.0o.md`，状态 **M16**。
 > **v1.0n 新增 REQ-67**（工具的前置设定随模式来、设定不满足的工具不上 wire，见其 §4.14 与附录 T），
 > 并随之修订 REQ-54 的 `shell` 条款；依据规格 `ravel-breve-spec-v1.0n.md`，状态 **M15**。
 > **v1.0m 新增 REQ-65 / REQ-66**（注册与公示分离、正交 plan，见其 §4.13 与附录 S），
@@ -353,3 +355,11 @@ D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
 |---|---|---|
 | REQ-67 | 工具的前置设定（`:tools/gates`）随模式声明，缺省配好；设定不满足不上 wire；`--modes` 印设定；装载期告警 | `unit/modes.janet`（「模式的工具与设定自洽」「前置设定不满足的工具不上 wire」）、`unit/cap-tools.janet`（开关两向 + 环境变量覆写）、`e2e/cli.sh`（default 的 shell 开箱即用 / 关掉 → 60 / `RB_ALLOW_SHELL=0` → 60 / `--modes` 印设定）|
 | REQ-54（修订）| `shell` 的前置设定是 `allow-shell`（缺省 `true`，随模式来）；关掉后 `invoke` → 60 且不上 wire | 同上 |
+
+## v1.0o 新增 REQ（68）+ REQ-48 / REQ-54 修订
+
+| REQ | 内容 | 测试 |
+|---|---|---|
+| REQ-68 | 公示的工具必须带具体 `parameters`；参数别名（`command` = `cmd` …）；模型发起的调用里**参数错误**作为 `role=tool` 的结果回给模型、本轮继续；环境侧失败与 `invoke` 仍 `60` | `conformance/req-68-tool-args.janet`（8 条）、`e2e/cli.sh`（7 条：别名成功、错参数名仍 0、会话里有「接受：」、`invoke` → 60、越界 → 60）|
+| REQ-48（修订）| 「工具失败 → 60」只适用于环境侧失败与脚本路径；模型发起的参数错误走回话通道 | 同上 |
+| REQ-54（修订）| 六个工具参数名附别名表；`parameters` 的形状要求归 REQ-68 | 同上 |

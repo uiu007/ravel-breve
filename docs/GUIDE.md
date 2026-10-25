@@ -65,7 +65,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0n · janet 1.42.1
+ravel breve 1.0o · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -191,7 +191,7 @@ show'
 | 差别 | 做法 |
 |---|---|
 | 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
-| 必须自称客户端 | `User-Agent: ravel-breve/1.0n`（**不许**用通用 SDK 名）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0o`（**不许**用通用 SDK 名）|
 | 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
 
 另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
@@ -1378,7 +1378,37 @@ $ RB_LLM=mock ./bin/ravel --modes
 > 为什么不全交给环境变量：环境变量是**每台机器**的，工具清单是**每个模式**的。
 > 后者才是"这个模式装了什么就该能用什么"的表达；环境变量只当显式覆盖（`RB_ALLOW_SHELL=0` 压过关）。
 
-### 14.5.5 历史标记：第几轮、从哪来、在哪个模式下
+### 14.5.5 工具的参数：形状、别名、手误回给模型（REQ-68）
+
+模型的工具调用是**它猜出来的**：请求里如果不写参数形状，它只能从描述里推。
+v1.0n 之前的请求带的是空壳 `{"type":"object","additionalProperties":true}`——
+于是 OpenCode / DeepSeek 把 `shell` 的参数写成 `command`，工具报「缺少参数 cmd」，
+**整轮以 60 收场**。v1.0o 三件事：
+
+1. **形状要写**：公示的每个工具都带具体 `parameters`（`properties` + `required`），
+   属性描述里连别名一起写。
+2. **别名要认**：`command` = `cmd`、`file_path` = `path`、`old_string` = `old`、`query` = `pattern`……
+   取参先查规范名，再查别名（只「认」，不做语义变换）。
+3. **手误回给模型**：模型发起的调用里，**参数错误**（缺参数 / 名字不认识 / 工具名写错）
+   作为 `role = "tool"` 的结果回给它，本轮**继续**；环境侧失败（沙箱、读不到、执行失败）仍是 `60`。
+
+```
+# 别名：模型写 command 也照跑
+$ RB_MOCK_TOOL='shell:{"command":"echo hi"}' RB_LLM=mock ./bin/ravel -e '...'
+"hi\n"
+
+# 名字彻底写错：错误回给模型，本轮不当失败
+$ RB_LLM=mock ./bin/ravel -e 'invoke "read" H{ "pth" "README.md" }'
+ravel: 工具失败：read：缺少参数 path（接受：path / file_path / filepath / file / filename）
+$ echo $?
+60
+```
+
+注意最后一条：**`invoke` 不走**"回给模型"那条路。脚本里的参数是程序员写的，
+错了必须报 60；只有模型发起的调用才有"让它自己改一次"的余地。
+用 `--modes` 看不到参数形状（那是给模型的），要查就看工具描述或规格 §4.14 的表。
+
+### 14.5.6 历史标记：第几轮、从哪来、在哪个模式下
 
 Utter 上默认打三个标记，**全部可关**：
 
@@ -1436,7 +1466,7 @@ session'
   provider 看不到本方言的内部记号。
 - `flag` 读开关，未定义 → `nil`；`flag-set` 的值必须是布尔，否则 `31`。
 
-### 14.5.6 把自己的钩子收成模式
+### 14.5.7 把自己的钩子收成模式
 
 `mode-of` 取的是**当前工作区**（包括你自己 `@on` 的钩子）：
 
@@ -1489,6 +1519,8 @@ $ RB_LLM=mock ./bin/ravel -e 'invoke "edit" H{ "path" "build/tmp/g.txt" "old" "b
 "已改 1 处：build/tmp/g.txt"
 ```
 
+- 参数还可以写**别名**（§14.5.5）：`command` = `cmd`、`file_path` = `path`、`old_string` = `old`……
+  模型常写的那几个都在表里；`invoke` 用别名的效果与规范名相同。
 - 五个文件工具都守 **D-60 的沙箱**（根 = 当前目录）：越界 → `60`（工具本体失败）。
 - `grep` / `glob` 是**字面量/通配**，不是正则：`edit` 的 `old` 抄错一个字就会报「找不到」。
 - `shell` 有自己的**前置设定** `allow-shell`（§14.5.4）：它随模式一起来，所以缺省就能用；
@@ -1791,7 +1823,7 @@ $ tools/oc-setup.sh --local             # 不想写家目录：配置写 ./.rave
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0n · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0o · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -2000,7 +2032,7 @@ ravel> ()
 | L10 处理流程 | `mode` `modes` `mode-of` `mode-name` `mode-prompt` `mode-tools` `flag` `flag-set` `enter-plan` `exit-plan` |
 | provider 配置 | `llm` `llm-get` `llm-set` `llm-models` `llm-auto` `llm-import` `llm-export` |
 
-完整栈效应见 `ravel-breve-spec-v1.0m.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
+完整栈效应见 `ravel-breve-spec-v1.0o.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
 （v1.0e 已把 SF-14…SF-35 冻结；v1.0f 加 REQ-52 处理流程层；v1.0g 加沙箱与默认工具；
 v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型列表；
 v1.0j 加插件 ABI 与 skills；v1.0k 加配置预设与启动装载；v1.0l 加预制的可发现性；

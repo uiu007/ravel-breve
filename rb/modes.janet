@@ -146,9 +146,13 @@
   "打开 plan 开关，并登记 `exit_plan_mode`（渐进披露：wire 上只在此后出现）。"
   []
   (rb/tool-register! "exit_plan_mode"
-                     (string "提交计划并退出 plan 模式：参数 { \"plan\": \"<markdown>\" }；"
+                     (string "提交计划并退出 plan 模式；"
                              "plan 以 `#` 标题开头，是本次响应的**唯一且最后**一次工具调用。")
-                     rb/exit-plan-mode)
+                     rb/exit-plan-mode
+                     @{:type "object"
+                       :properties @{"plan" @{:type "string"
+                                              :description "完整计划的 markdown，以 # 标题开头"}}
+                       :required @["plan"]})
   (rb/flag-set! "plan" true)
   nil)
 
@@ -289,8 +293,12 @@
         "@Toolcall" @[rb/default-toolcall-thunk]}
       rb/ptc-system
       (merge (table/clone (rb/cap-default-tools))
-             @{"eval" @{:desc (string "执行一段 ravel breve 程序并返回栈顶。参数 {"
-                                      "\"src\": \"<程序>\"}；程序里可用 invoke \"工具名\" { … }。")
+             @{"eval" @{:desc (string "执行一段 ravel breve 程序并返回栈顶；"
+                                      "程序里可用 invoke \"工具名\" { … }。")
+                        :params @{:type "object"
+                                  :properties @{"src" @{:type "string"
+                                                         :description "ravel breve 程序源码（一行一条语句）"}}
+                                  :required @["src"]}
                         :fn rb/ptc-eval}})
       @["eval"])
 
@@ -320,8 +328,11 @@
       (rb/ws-default-hooks)
       rb/cordis-system
       (merge (table/clone (rb/cap-default-tools))
-             @{"plugin" @{:desc (string "装插件：参数 { \"path\": \"<.breve>\" }；"
-                                      "插件里的词/钩子/工具进本工作区（REQ-60）。")
+             @{"plugin" @{:desc (string "装插件：插件里的词/钩子/工具进本工作区（REQ-60）。")
+                          :params @{:type "object"
+                                    :properties @{"path" @{:type "string"
+                                                           :description "插件文件路径，通常是 .breve"}}
+                                    :required @["path"]}
                           :fn rb/tool-plugin}}))})
 
 (defn rb/mode-preset-tools

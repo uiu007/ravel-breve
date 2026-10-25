@@ -23,4 +23,9 @@ show
 #    关掉后它连 wire 都不上（模型看不见），invoke 会给出点名的 60。
 invoke "shell" H{ "cmd" "wc -l build/tmp/ravel-13.txt" }
 show
+
+# 5) 参数可以写别名（REQ-68）：模型常写 command / file_path，这里同样认。
+#    这样一次参数名的手误不会报废一整轮（脚本里 invoke 仍按 60 报错）。
+invoke "shell" H{ "command" "wc -l build/tmp/ravel-13.txt" }
+show
 "工具包就绪"

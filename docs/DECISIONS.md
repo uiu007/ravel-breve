@@ -1188,3 +1188,61 @@ v1.0m 复刻 dsh 预置时只抄了**工具清单**（`:tools` / `:wire` / 提�
 `tests/unit/cap-tools.janet`（缺省可用、开关关掉 → 60、`wire` 少一个、环境变量两向压过开关）；
 `tests/e2e/cli.sh`（default 的 shell 开箱即用 / `--modes` 印设定 / 关掉 → 60 / 报错点名 / `RB_ALLOW_SHELL=0` → 60）；
 `examples/18-modes.sh` ⑮⑯。规格：v1.0n §4.14 与附录 T。
+
+---
+
+## D-74 工具的参数：形状要写、别名要认、手误回给模型（v1.0o / REQ-68）
+
+**症状（用户实测，OpenCode / DeepSeek）**：模型调 `shell`，参数写成 `{"command": …}`；
+`cap/tool-require` 报「缺少参数 cmd」，`rb/tool-run` 按 REQ-48 归到 `60`，
+于是**整轮** `@RoundDone 失败`，会话停在半路。一次参数名手误，报废一次回合。
+
+**根因有三层，一层一层说。**
+
+1. **请求里没写参数形状**。`rb/tool-defs` 从 v1.0f 起就发
+   `{"type":"object","additionalProperties":true}`——一个空壳。模型只能从一句话描述里
+   猜参数名叫什么。这不是模型的错，是**契约没交代**。
+2. **参数名只有一个**。工具内部一律用短名（`cmd` / `path` / `old` / `new`），
+   而模型见过的工具（Claude Code、dsh、各家 SDK）大量用 `command` / `file_path` / `old_string`。
+   取名分歧是**必然**的，除非我们认几个别名。
+3. **失败不分账**。REQ-48 写"工具体失败 → 60（编排级）"，把**模型的拼写错误**和
+   **环境的拒绝**（沙箱、读不到、命令失败）压成同一件事。前者该由模型付（一条 tool 消息，
+   它下一轮自己改），后者该由操作员付（退出码）。
+
+**处置（三条）。**
+
+- **形状**：`cap/tools.janet` 给六个工具各写一份 `:params`（`properties` + `required` + 描述里的别名）；
+  `rb/tool-defs` 直接把它当 `parameters` 发出去，缺省（用户 `deftool` 的）才回落到宽松形状。
+  `rb/tool-register!` 多一个可选第四参，`exit_plan_mode` / `eval` / `plugin` 也补上了形状。
+- **别名**：`cap/tool-aliases`（`cmd` ← `command` / `shell_command`；`path` ← `file_path` / `filepath` /
+  `file` / `filename`；`old` ← `old_string` / `old_text`；`new` ← `new_string` / `new_text`；
+  `content` ← `contents`；`pattern` ← `query` / `regex`；`dir` ← `directory` / `base`；
+  `offset` ← `start_line` / `start`；`limit` ← `max_lines` / `count`；`src` ← `source` / `code` / `program`；
+  `plan` ← `plan_text`）。`cap/tool-arg` 先规范名后别名；`cap/tool-require` 的错误把整张名单列出来。
+- **分账**：`rb/tool-arg-fail` 抛带 `:rb-arg` 标记的错误；`@Toolcall` 的默认钩子 `protect` 住
+  `rb/tool-run`，看到标记就把错误当 `role = "tool"` 的内容回给模型（`错误：…（接受：…)`）并继续；
+  没标记的照旧 `rb/raise`（`60`，流进 `:failed`）。`invoke` 与脚本路径**不看标记**，仍 `60`。
+
+**为什么不选另外两条路。**
+
+- **只改描述、不写 schema**：模型对描述的遵循度远低于对 JSON Schema 的遵循度；
+  而且"空壳 schema"这件事本身就是契约缺陷，不修的话下一个 provider 还会踩。
+- **一律把工具失败回给模型（连沙箱也回）**：那会把"环境拒绝"变成模型的猜谜游戏——
+  它会换个路径再试，把 `40` 变成无限重试。**环境的拒绝必须让操作员看见**，这是 REQ-23 的立场。
+
+**取舍要讲明**：别名是"容错"，不是"标准"——规范名仍以 §4.14 的表为准，
+别名表只是承认"别人嘴里的同一个东西"。表是能力层的一部分，方言核心仍然不认识工具。
+
+**踩到的坑。**
+
+- `cap/tool-join` 原本定义在 `cap/tool-require` **之后**：Janet 编译期解析符号，直接引用会报未知符号
+  → 把 `cap/tool-join` 挪到前面。
+- `cap/fs-check` 抛的是**普通字符串**，`rb/error-code` 会把它映成 31；但工具路径上一切失败都被
+  `rb/tool-run` 包成 `60`——所以"沙箱越界"在 `invoke` 里是 `60` 而不是 `40`。
+  测试里差点按 `40` 写（`40` 是 `read` 词的契约，不是工具的）。
+- `deftool` 注册的**用户工具**不参与别名：它的体自己 `at "a"`，别名管不到它（契约不变，只是不再静默）。
+
+**验收。** `tests/conformance/req-68-tool-args.janet`（形状齐全、别名双向、`command` 成功、
+错参数名回给模型且本轮成功、未知工具名同理、`invoke` 仍 60、环境侧失败仍 60）；
+`tests/e2e/cli.sh` 四条；`examples/12-ptc.breve` 与 `examples/13-tools.breve` 不受影响。
+规格：v1.0o §4.12 / §4.14 与附录 U。

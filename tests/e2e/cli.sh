@@ -144,6 +144,30 @@ check "REQ-48：event 只发一次（不随事件风暴翻倍）" \
   "$(grep -cF '"type":"event"' /tmp/rb-e2e-out)"
 unset RB_MOCK_TOOL
 
+# REQ-68：参数模式 / 别名 / 手误回给模型（用户实测的 `command` vs `cmd`）
+printf '%s\n' \
+  '{"type":"eval","src":"agent \"c\" { }\ndup\nsend say \"跑\"\ndrain\npop\nsession"}' \
+  '{"type":"quit"}' > /tmp/rb-e2e-args
+
+RB_MOCK_TOOL='shell:{"command": "echo hi"}' \
+  check_rc "REQ-68：模型把 cmd 写成 command，别名认下 → 成功" 0 $RAVEL --serve < /tmp/rb-e2e-args
+RB_MOCK_TOOL='shell:{"command": "echo hi"}' \
+  check_has "REQ-68：命令真的跑了（结果进了会话的 tool 消息）" \
+  'hi' /tmp/rb-e2e-out
+
+RB_MOCK_TOOL='read:{"pth": "README.md"}' \
+  check_rc "REQ-68：参数名彻底写错也不再报废整轮（旧行为 60）" 0 $RAVEL --serve < /tmp/rb-e2e-args
+RB_MOCK_TOOL='read:{"pth": "README.md"}' \
+  check_has "REQ-68：错误作为 role=tool 的结果回给模型" \
+  '缺少参数 path（接受：path / file_path' /tmp/rb-e2e-out
+
+check_rc "REQ-68：脚本里的 invoke 仍是 60（没人替程序员改参数）" 60 \
+  $RAVEL -e 'invoke "read" H{ "pth" "README.md" }'
+check_has "REQ-68：invoke 的报错写清可接受的键" \
+  '接受：path / file_path' /tmp/rb-e2e-err
+check_rc "REQ-68：环境侧失败照样 60" 60 \
+  $RAVEL -e 'invoke "read" H{ "path" "/etc/shadow" }'
+
 # --json（REQ-22「输出 JSON」）
 check_rc "--json 成功" 0 $RAVEL --json -e '+ 1 2'
 check "--json 输出一条协议消息" \

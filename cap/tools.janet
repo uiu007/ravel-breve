@@ -15,32 +15,48 @@
 
 # ---- 小工具 ---------------------------------------------------------------
 
+(def cap/tool-aliases
+  "参数别名表：规范名 → 模型常写的别的叫法（REQ-68）。
+   只做「认」不做语义变换——`command` 与 `cmd` 指同一件事，程序不该因为它换了个
+   名字就报废一整轮（用户在 DeepSeek/OpenCode 上正是踩了 `command` 这个坑）。"
+  @{"cmd" @["command" "shell_command"]
+    "path" @["file_path" "filepath" "file" "filename"]
+    "old" @["old_string" "old_text"]
+    "new" @["new_string" "new_text"]
+    "content" @["contents"]
+    "pattern" @["query" "regex"]
+    "dir" @["directory" "base"]
+    "offset" @["start_line" "start"]
+    "limit" @["max_lines" "count"]
+    "src" @["source" "code" "program"]
+    "plan" @["plan_text"]
+    "url" @[]})
+
+(defn cap/tool-arg-names
+  "某个参数可接受的键（规范名 + 别名），错误信息与工具描述都用它。"
+  [k]
+  (def out @[k])
+  (each a (get cap/tool-aliases k @[]) (array/push out a))
+  (tuple ;out))
+
 (defn cap/tool-arg
-  "从工具参数表里取一个字符串字段（缺省 nil）。"
+  "从工具参数表里取一个字符串字段（缺省 nil）；别名也认（REQ-68）。"
   [args k]
-  (def v (get args k))
+  (var v (if (dictionary? args) (get args k) nil))
+  (when (and (nil? v) (dictionary? args))
+    (each alt (get cap/tool-aliases k @[])
+      (when (nil? v) (set v (get args alt)))))
   (if (nil? v) nil (string v)))
 
 (defn cap/tool-num
-  "取一个数字参数（模型有时给字符串 3，也认）。缺省/认不出 → nil。"
+  "取一个数字参数（模型有时给字符串 3，也认）。缺省/认不出 → nil。别名也认。"
   [args k]
-  (def v (get args k))
+  (def s (cap/tool-arg args k))
+  (def v (if (nil? s) (if (dictionary? args) (get args k) nil) s))
   (cond
     (number? v) v
     (string? v) (scan-number v)
     true nil))
-
-(defn cap/tool-require
-  "必填字段；缺了就报错（`rb/tool-run` 会把它归到 60）。"
-  [args k]
-  (def v (cap/tool-arg args k))
-  (when (nil? v) (error (string "缺少参数 " k)))
-  v)
-
-(defn cap/tool-str
-  "把工具结果变成字符串（结果会以 role \"tool\" 的 content 回给模型）。"
-  [v]
-  (if (string? v) v (string/format "%q" v)))
 
 (defn cap/tool-join
   [xs sep]
@@ -51,6 +67,22 @@
     (set out (string out x))
     (set first false))
   out)
+
+(defn cap/tool-require
+  "必填字段；缺了就抛**参数错误**（REQ-68）：`rb/tool-run` 认 `:rb-arg`，
+   模型发起的调用会把它当工具结果回给模型（可自纠），`invoke` 仍按 60 报错。"
+  [args k]
+  (def v (cap/tool-arg args k))
+  (when (nil? v)
+    (error @{:rb-arg true
+             :rb-msg (string "缺少参数 " k "（接受："
+                             (cap/tool-join (cap/tool-arg-names k) " / ") "）")}))
+  v)
+
+(defn cap/tool-str
+  "把工具结果变成字符串（结果会以 role \"tool\" 的 content 回给模型）。"
+  [v]
+  (if (string? v) v (string/format "%q" v)))
 
 (defn cap/tool-lines
   "按行切（保留空行；不用 PEG）。"
@@ -267,20 +299,64 @@
 
 # ---- 安装 -----------------------------------------------------------------
 
+(defn cap/tool-param-desc
+  "参数描述：正文 + 「（别名：…）」（没有别名就不写空括号）。"
+  [k d]
+  (def alts (tuple/slice (cap/tool-arg-names k) 1))
+  (if (= 0 (length alts))
+    d
+    (string d "（别名：" (cap/tool-join alts " / ") "）")))
+
+(defn cap/tool-str-param
+  [k d]
+  @{:type "string" :description (cap/tool-param-desc k d)})
+
+(defn cap/tool-num-param
+  [k d]
+  @{:type "number" :description (cap/tool-param-desc k d)})
+
 (def cap/tools-built
   # 只建一次：函数对象在 `ws-new`、预置 `default` 模式、`mode-of` 之间**共享**，
   # 于是模式的 round-trip 可以用 `deep=` 直接比（D-59 / D-61）。
-  @{"read" @{:desc "读文件：参数 { path, offset?, limit? }，一行一个「行号 + 文本」，超长会截断并提示续读。"
+  #
+  # `:params` 是给模型的**参数模式**（JSON Schema，REQ-68）：写了模型就按名字填，
+  # 没写（v1.0n 之前）等于让模型猜——猜 `command` 而不是 `cmd`，整轮 60。
+  @{"read" @{:desc "读文件，一行一个「行号 + 文本」，超长会截断并提示续读。"
+            :params @{:type "object"
+                      :properties @{"path" (cap/tool-str-param "path" "文件路径")
+                                    "offset" (cap/tool-num-param "offset" "起始行号，从 1 起")
+                                    "limit" (cap/tool-num-param "limit" "读多少行，缺省 400")}
+                      :required @["path"]}
             :fn cap/tool-read}
-    "write" @{:desc "写文件：参数 { path, content }，原子替换整个文件，返回字节数。"
+    "write" @{:desc "写文件，原子替换整个文件，返回写入的字节数。"
+             :params @{:type "object"
+                       :properties @{"path" (cap/tool-str-param "path" "文件路径")
+                                     "content" (cap/tool-str-param "content" "完整的新内容")}
+                       :required @["path" "content"]}
              :fn cap/tool-write}
-    "edit" @{:desc "改文件：参数 { path, old, new }，把 old 的所有出现换成 new（字面量）。"
+    "edit" @{:desc "改文件，把 old 的所有出现换成 new（字面量，不是正则）。"
+            :params @{:type "object"
+                      :properties @{"path" (cap/tool-str-param "path" "文件路径")
+                                    "old" (cap/tool-str-param "old" "要替换掉的原文")
+                                    "new" (cap/tool-str-param "new" "替换成什么")}
+                      :required @["path" "old"]}
             :fn cap/tool-edit}
-    "grep" @{:desc "搜内容：参数 { pattern, path? }，字面量匹配，输出 path:行号: 文本。"
+    "grep" @{:desc "搜内容（字面量匹配），输出 path:行号: 文本。"
+            :params @{:type "object"
+                      :properties @{"pattern" (cap/tool-str-param "pattern" "要找的文本")
+                                    "path" (cap/tool-str-param "path" "在哪个目录/文件里找，缺省当前目录")}
+                      :required @["pattern"]}
             :fn cap/tool-grep}
-    "glob" @{:desc "找文件：参数 { pattern, dir? }，支持 * / ? / **，一行一个路径。"
+    "glob" @{:desc "找文件，支持 * / ? / **，一行一个路径。"
+            :params @{:type "object"
+                      :properties @{"pattern" (cap/tool-str-param "pattern" "路径模式，如 src/**/*.janet")
+                                    "dir" (cap/tool-str-param "dir" "从哪个目录开始，缺省当前目录")}
+                      :required @["pattern"]}
             :fn cap/tool-glob}
-    "shell" @{:desc "跑命令：参数 { cmd }，返回 stdout；需要 allow-shell 设定（怕绕过沙箱时可关）。"
+    "shell" @{:desc "跑一条 shell 命令，返回 stdout + stderr；需要 allow-shell 设定（怕绕过沙箱时可关）。"
+             :params @{:type "object"
+                       :properties @{"cmd" (cap/tool-str-param "cmd" "要执行的命令，交给 sh -c")}
+                       :required @["cmd"]}
              :fn cap/tool-shell}})
 
 (defn cap/tools-default

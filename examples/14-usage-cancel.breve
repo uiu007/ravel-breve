@@ -1,0 +1,28 @@
+# 14 用量记账与取消（D-62 / D-63，REQ-55/56/57）
+#
+# 离线跑法：RB_LLM=mock ./bin/ravel examples/14-usage-cancel.breve
+
+# 1) 一轮对话后读累计用量：键是**字符串**（方言没有关键字字面量）
+agent "c" { }
+send say "你好"
+drain
+usage
+show
+
+# 2) 只取其中一个字段
+at "total-tokens" usage
+show
+
+# 3) 再跑一轮（换个 agent 标签），累计值跟着涨：calls 2
+agent "d" { }
+send say "再来一句"
+drain
+usage
+show
+
+# 4) 取消：先把流停在半路（stop），再统一 cancel（这里已经没有开着的流 = 0）
+agent "e" { }
+send say "半路停下"
+stop
+cancel
+show

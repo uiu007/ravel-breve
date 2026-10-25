@@ -117,6 +117,11 @@
         (string? v)
         (do (set out v) (set go false))
 
+        # P2：纯用量元信息块原样透传（stream-next! 记下来、继续取，不发 @Chunk）。
+        # 注意：带 `:tool-calls` 的批要先执行工具，所以这个分支必须排在它后面判。
+        (and (table? v) (get v :usage) (not (get v :tool-calls)))
+        (do (set out v) (set go false))
+
         (table? v)
         (do
           (def calls (get v :tool-calls))
@@ -140,7 +145,11 @@
               (set it (rb/llm-chat (rb/messages-of a) opts))
               (when (not (function? it))
                 (rb/raise (rb/exit-table :orchestration-base)
-                          (string "provider 必须返回取块函数，得到 " (type it)))))))
+                          (string "provider 必须返回取块函数，得到 " (type it))))
+              # P2：这一批若带用量，先把它交出去（流记账后再来取下一批文本）
+              (when (get v :usage)
+                (set out @{:usage (get v :usage)})
+                (set go false)))))
 
         (rb/raise (rb/exit-table :orchestration-base)
                   (string "provider 的块类型未知：" (type v)))))

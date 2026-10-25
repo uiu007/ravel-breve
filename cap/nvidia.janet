@@ -79,6 +79,9 @@
                    (cap/nv-body messages opts)))
   # 工具调用的增量累积（REQ-48）：index → {:id , :name , :args}
   (def acc @{})
+  # P2：OpenAI 兼容的 usage 帧（通常是 `choices: []` 的最后一帧）
+  (var usage nil)
+  (var usage-sent false)
   (defn pull []
     (var go true)
     (var out nil)
@@ -95,6 +98,12 @@
             (empty? payload) nil
             (= payload "[DONE]") (set go false)
             (do
+              (def j (protect (dec payload)))
+              (when (get j 0)
+                (def obj (get j 1))
+                (when (dictionary? obj)
+                  (def u (get obj "usage"))
+                  (when (dictionary? u) (set usage u))))
               (each tc (or (cap/nv-tool-deltas dec payload) [])
                 (def idx (or (get tc "index") 0))
                 (def cur (or (get acc idx) @{:id "" :name "" :args ""}))
@@ -131,7 +140,9 @@
             (rb/raise (rb/exit-table :orchestration-base)
                       (string "NVIDIA 接口返回非 SSE 内容："
                               (string/slice line 0 (min 200 (length line)))))))))
-    (if (and (nil? out) (not (empty? acc)))
+    (if (and usage (not usage-sent))
+      (do (set usage-sent true) @{:usage usage})
+      (if (and (nil? out) (not (empty? acc)))
       (do
         (def calls @[])
         (each idx (sort (keys acc))
@@ -146,7 +157,7 @@
                                "function" @{"name" (cur :name)
                                             "arguments" (cur :args)}}}))
         @{:tool-calls (tuple ;calls)})
-      out))
+        out)))
   pull)
 
 (rb/cap-put :llm/nvidia cap/nv-chat)

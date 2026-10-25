@@ -3,6 +3,7 @@
 #   llm             -- Table           当前工作区的配置（活表）
 #   llm-get  Key    -- Value           取**生效值**（配置 > 环境变量 > 缺省）
 #   llm-set  Value Key --              写一项；Value 为 nil = 删除（回落）
+#   usage           -- Table           本次会话累计的用量（P2：prompt / completion / total / calls）
 #
 # 书写序：`llm-set "nvidia" "provider"` → 镜像后压 `"provider"`、再压 `"nvidia"`，
 # 于是栈顶是**值**、次顶是**键**——与「最左 = 第一个操作数 = 栈顶」一致。
@@ -24,3 +25,9 @@
   "Key -- Value；取生效值（工作区配置 > 环境变量 > 内置缺省）。"
   []
   (rb/push (rb/config-get (rb/pop))))
+
+(defn rb/usage
+  " -- Table；工作区累计用量。字段与 provider 一致：prompt-tokens / completion-tokens /
+   total-tokens / calls（工具调用与重试各算一次）。"
+  []
+  (rb/push (rb/usage-of)))

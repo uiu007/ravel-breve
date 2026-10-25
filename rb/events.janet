@@ -77,7 +77,11 @@
     :path nil      # 持久化目标（nil = 不落盘；REQ-20）
     :seq 0         # 已写入日志的记录数
     :snap-size 0    # 快照文件字节数（REQ-21 的 0.5 倍判据）
-    :mode-tools @[]}) # 当前模式装了哪些工具（D-61）
+    :mode-tools @[]   # 当前模式装了哪些工具（D-61）
+    :usage @{:prompt-tokens 0     # P2：provider 报的用量（累计）
+             :completion-tokens 0
+             :total-tokens 0
+             :calls 0}})
   # D-61：能力层若提供默认工具包，就装进新工作区（--core-only 时这里没有能力，工具表为空）。
   # `:mode-tools` 记住「当前模式装了哪些工具」：切模式时先撤这批，再装新模式声明的那批，
   # 用户自己 `deftool` 的（不在这个名单里）不受影响。
@@ -97,6 +101,32 @@
     (do (when (nil? rb/ws-default) (set rb/ws-default (rb/ws-new)))
         rb/ws-default)
     w))
+
+(defn rb/usage-add!
+  "把一次 provider 报的用量累加进工作区（P2）。每调一次算一次请求。
+   载荷形状：`{:prompt-tokens n :completion-tokens n :total-tokens n}`；
+   字段缺了就跳过，不猜（不同 provider 只报一部分）。"
+  [u]
+  (def ws (rb/ws))
+  (def acc (ws :usage))
+  (when (not (and (table? u) (table? acc))) (break))
+  (each [k f] [[:prompt-tokens "prompt_tokens"] [:completion-tokens "completion_tokens"]
+               [:total-tokens "total_tokens"]]
+    (def v (or (get u k) (get u f)))
+    (when (number? v) (put acc k (+ (acc k) v))))
+  # 一次元信息块 = 一次 provider 请求报的账（工具轮会有多次）
+  (put acc :calls (inc (acc :calls)))
+  acc)
+
+(defn rb/usage-of
+  "当前工作区的累计用量（一份拷贝，避免调用方改到内部表）。
+   键是**字符串**：方言里没有关键字字面量（REQ-06），用 `at \"total-tokens\"` 才读得到。"
+  []
+  (def u ((rb/ws) :usage))
+  (def out @{})
+  (eachp [k v] u
+    (put out (if (keyword? k) (string k) (string k)) v))
+  out)
 
 (defn rb/hooks-of
   "取某事件的钩子数组（不存在则建）。"

@@ -14,7 +14,7 @@
 # 保留名表**不得**与词表重名（REQ-09：一个名字只有一种词性）——`watch` 是方言词
 # （L9），所以它不在这里。
 
-(def rb/version-string "ravel breve 1.0g · janet 1.42.1")
+(def rb/version-string "ravel breve 1.0h · janet 1.42.1")
 
 # REQ-25：保留的元命令名（无前缀裸词，均不是方言词）
 (def rb/meta-commands
@@ -253,6 +253,14 @@
                              :protocol rb/protocol-version
                              :version rb/version-string})
 
+            # P3：取消 —— 停掉还开着的流（含 `->` 血缘传播），不结束会话
+            "cancel"
+            (do
+              (def n (rb/cancel-all!))
+              (def msg @{:type "result" :ok true :stack @[] :stopped n})
+              (when (not (nil? id)) (put msg :id id))
+              (rb/proto-emit msg))
+
             "reset"
             (do
               (set env (rb/new-env))
@@ -268,7 +276,7 @@
             "bad" (rb/serve-bad (req :error) id)
 
             (do
-              (rb/serve-bad (string "未知的请求类型：" (req :type) "（协议 v1 只认 eval/ping/hello/reset/quit）")
+              (rb/serve-bad (string "未知的请求类型：" (req :type) "（协议 v1 只认 eval/ping/hello/reset/cancel/quit）")
                             id)))
           (rb/cli-out-flush!)
           # REQ-24：请求处理完再把视图流推给前端——前端可边收边写

@@ -710,3 +710,44 @@ fact 5                     # 120
 - **验收**：`tests/unit/cap-tools.janet`（四个工具 + 沙箱守门 + shell 开关）、
   `tests/conformance/req-47-51-capabilities.janet`（模型发起 `edit` → 文件真被改 + 结果回会话）、
   端到端沙箱三条、`core-only` 仍通过（工具表为空）。
+
+## D-62 用量记账（v1.0h 的 REQ-55）
+
+- **问题**：花掉多少 token 只有 provider 知道；编排层看不见就无法做「按用量压缩 / 成本上限」。
+- **决定**：provider 可在**取尽之前**吐一个**元信息块** `@{:usage {...}}`。
+  - 块**不是文本**：不发 `@Chunk`、不进 `(stream :text)`、不参与渲染。
+  - `rb/stream-next!` 见到它就记进 `(stream :usage)` 并**立刻**累加进工作区 `:usage`
+    （`rb/usage-add!`），然后继续取下一块。
+- **为什么立刻记、而不是 `@Done` 时记**：一轮工具调用会跨**多次 provider 请求**
+  （工具批一次、最终文本一次），等 `@Done` 只能留下最后一笔。
+  实测：`add2` 工具轮应为 `calls 2 / 6 / 4 / 10`，晚记就只有 `1 / 5 / 3 / 8`。
+- **`calls` 的语义**：**报过账的 provider 请求数**（= 收到的元信息块数），
+  不是「一次 `send` 的次数」。不带用量的 provider 不涨 `calls`，也不报错。
+- **`tool-loop` 的分支顺序**（踩过的坑）：纯用量块必须 `(and (table? v) (get v :usage)
+  (not (get v :tool-calls)))` —— 少了最后一条，带 `:tool-calls` 的批会被当成纯元信息块
+  直接返回，**工具根本不执行**。
+- **工具批也可能带用量**：执行完工具、把下一批的取块函数换好之后，先把这一批的用量交出去
+  （`out = @{:usage …}`，`go = false`），下一轮 `pull` 才拿到文本。
+- **`usage` 词读拷贝**，且键是**字符串**：方言没有关键字字面量（REQ-06），
+  关键字键在方言里根本读不到（`at "total-tokens"` → nil）。内部 `:usage` 仍是关键字。
+- **验收**：`tests/unit/usage.janet`（单轮 / 多轮累加 / 元信息块不进正文 / 工具轮两次 / 读拷贝）。
+
+## D-63 取消与流截止时间（v1.0h 的 REQ-56 / REQ-57）
+
+- **问题**：流跑飞了无法从外部叫停；上游作废后下游还在跑；provider 卡住 = 进程卡住。
+- **决定**：
+  - `stop`（REQ-36）停一条流时，沿 `->` 的**血缘边**把下游一并停。
+    实现：`rb/cancel-cascade!` 看下游 agent 的 `origin` 是否含上游 `label`，递归（状态机防重入）。
+    理由：血缘就是「谁的话算数」，与 `onfail` / 广播域同一条边。
+  - `cancel`：方言词（0 元，`-- Int`）+ 协议请求（`{"type":"cancel"}` → `result` 带 `stopped`）。
+    停**所有还开着的流**（本轮 + 视图流），**不结束会话**。
+  - `RB_STREAM_DEADLINE_MS`：从**建流时刻**（`os/clock`）起算，每次取块前检查；
+    超时 → 流 `:failed` + `@Fail`，退出码 **60**（编排级）。
+- **为什么截止时间用 `os/clock` 而不是 `os/time`**：Janet 1.42 的 `os/time` 只到**秒**，
+  毫秒级截止时间永远不触发（实测两次读数相同）；`os/clock` 是带小数的墙钟秒。
+- **为什么 `cancel` 在 `--serve` 里通常 `stopped 0`**：求值是**同步**的，一次 `eval` 内的流
+  在返回前已经收尾；可停的只剩「视图流正在被推进」与「REPL 里还没 `drain`」的流。
+  所以 `cancel` 的主战场是 REPL 与**前端停止按钮**（配合 `RB_STREAM_DEADLINE_MS`），
+  而不是"打断正在跑的 provider"——那需要线程/进程级取消，属 §5「明确不做」。
+- **验收**：`tests/unit/cancel.janet`（血缘传播 / `cancel` 计数 / `cancel` 词 / 截止时间）、
+  `tests/e2e/cli.sh` 四条（协议形状 + 会话存活 + 方言词）。

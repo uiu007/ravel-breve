@@ -74,17 +74,42 @@
     (do
       (var sent false)
       (fn []
-        (if sent
-          nil
-          (do (set sent true) @{:tool-calls (tuple ;[(cap/mock-parse-tool)])}))))
+        (cond
+          (not sent)
+          (do (set sent true)
+              # 工具批也带用量（P2）：真实 provider 通常把 usage 放在最后一帧，
+              # mock 这里显式给，好让离线测试能断言「每次 provider 请求都记了」
+              @{:tool-calls (tuple ;[(cap/mock-parse-tool)])
+                :usage @{:prompt-tokens 1 :completion-tokens 1 :total-tokens 2}})
+
+          nil)))
     (do
       (def chunks (cap/mock-chunks text))
+      (def n (length chunks))
+      # P2：mock 也报用量（确定性：按 UTF-8 字符数算，离线可断言）
+      (def prompt-tokens
+        (do
+          (var t 0)
+          (each m messages (set t (+ t (length (cap/chars (get m :content ""))))))
+          t))
+      (def completion-tokens (length (cap/chars text)))
       (var i 0)
       (fn []
-        (when (< i (length chunks))
-          (def c (chunks i))
-          (++ i)
-          c)))))
+        (cond
+          (< i n)
+          (do
+            (def c (chunks i))
+            (++ i)
+            c)
+
+          (= i n)
+          (do
+            (++ i)
+            @{:usage @{:prompt-tokens prompt-tokens
+                       :completion-tokens completion-tokens
+                       :total-tokens (+ prompt-tokens completion-tokens)}})
+
+          nil)))))
 
 (defn cap/mock-chat
   [messages opts]

@@ -43,6 +43,7 @@ take 2 "abcde"
 | `ping` | — | 连通性检查 | `pong` |
 | `hello` | — | 握手，取协议/实现版本 | `hello` |
 | `reset` | `id`（可选） | 丢弃工作区（字典 + 栈 + agent），换新的 | `result`（`ok:true`，`stack:[]`） |
+| `cancel` | `id`（可选） | 停掉还开着的流（含 `->` 血缘传播）；**不结束会话**（REQ-56） | `result`（`ok:true`，`stopped:N`） |
 | `quit` | — | 结束服务 | `bye`，然后退出码 0 |
 
 - 缺 `type` 时按 `eval` 处理（`{"src":"1"}` 合法）。

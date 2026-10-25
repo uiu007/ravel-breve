@@ -64,6 +64,11 @@
   []
   (rb/push (rb/stream->utter! (rb/stream-ensure (rb/pop)))))
 
+(defn rb/cancel
+  " -- Int；停掉本工作区所有还开着的流（含沿 `->` 血缘的传播），返回停下的个数（P3）。"
+  []
+  (rb/push (rb/cancel-all!)))
+
 (defn rb/stop
   "Stream -- Stream；中止（REQ-36）。"
   []

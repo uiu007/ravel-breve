@@ -1,13 +1,14 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0g.md`**（沙箱与默认工具）；
+依据规格：**`ravel-breve-spec-v1.0h.md`**（用量 / 取消 / 截止时间）；
 `ravel-breve-spec-v1.0c.md` / `ravel-breve-spec-v1.0b.md` 为历史原文。
 状态：**M6**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
 > v1.0d 新增 **REQ-47…REQ-51**（见文末）；**v1.0e 不新增 REQ**（只把 SF-14…SF-35 冻结，见其附录 I）；
 > **v1.0f 新增 REQ-52**（处理流程 / 模式，见其 §4.13 与附录 J）；
-> **v1.0g 新增 REQ-53 / REQ-54**（文件沙箱、默认工具包，见其 §4.14 与附录 L）。
+> **v1.0g 新增 REQ-53 / REQ-54**（文件沙箱、默认工具包，见其 §4.14 与附录 L）；
+> **v1.0h 新增 REQ-55 / REQ-56 / REQ-57**（用量记账、取消与传播、流截止时间，见其 §4.15 与附录 M）。
 
 跑法：`make test`（单元 + 符合性 + 端到端 + 附录 D）。
 
@@ -282,3 +283,13 @@ D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
 | REQ-54 | 默认工具包：`edit` / `grep` / `glob` / `shell`（能力层 `:tools/install`；`shell` 需 `RB_ALLOW_SHELL=1`）| ✅ | `unit/cap-tools.janet`、`conformance/req-47-51-capabilities.janet`（模型发起 edit）、`e2e/cli.sh` |
 
 决策记录：D-59（模式 ⇄ 钩子）· D-60（文件沙箱）· D-61（默认工具包与 `:mode-tools`）。
+
+## v1.0h 新增 REQ（55–57）
+
+| REQ | 内容 | 状态 | 测试 |
+|---|---|---|---|
+| REQ-55 | 用量记账：元信息块（不是文本）→ 工作区 `:usage` 累计；`usage` 词读拷贝 | ✅ | `unit/usage.janet` |
+| REQ-56 | 取消：`stop` 沿 `->` 血缘传播；`cancel` 词 + 协议 `cancel`（`stopped`，不结束会话）| ✅ | `unit/cancel.janet`、`e2e/cli.sh`（四条）|
+| REQ-57 | 流截止时间：`RB_STREAM_DEADLINE_MS`，超时 → 流失败 + 60 | ✅ | `unit/cancel.janet` |
+
+决策记录：D-62（用量记账）· D-63（取消与截止时间）。

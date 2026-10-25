@@ -28,6 +28,7 @@
 | 元命令 `clear` | `{"type":"reset"}` | 同上 | 同 `reset` |
 | 启动握手 | `{"type":"hello"}` | `hello`（含 `protocol` / `version`） | `protocol` ≠ 1 → 报错并拒绝启动 |
 | 心跳/存活检查 | `{"type":"ping"}` | `pong` | 不做显示 |
+| 停止按钮（`C-c C-k`） | `{"type":"cancel"}` | `result`（`ok:true`、`stopped:N`） | 把本轮流按「已中止」收尾；**不清屏、不丢工作区** |
 
 **要点**
 
@@ -35,6 +36,9 @@
   `help` 完全不用发请求；`quit`/`exit`/`clear` 分别映射到 `quit`/`quit`/`reset`。
 - **底栏原始内容一律直发**：不要在前端「补全成 JSON」——协议 §2.1 的判定规则
   （`{` 后紧跟 `"` 才是 JSON 请求）保证 `{ 1 2 }` 这类字面量能原样求值。
+- **停止 = `cancel`，不是 `reset`**（REQ-56）：`reset` 会丢掉整个工作区；`cancel` 只停还开着的流
+  （`stopped:0` 也是正常结果），之后的 `eval` 照常可用。真 provider 卡住的场景还要配后端
+  `RB_STREAM_DEADLINE_MS`（超时 = `code:60`，不是「空回复 + 0」）。
 - **`stack` 是渲染好的文本**（协议 §3.1）：前端只显示，不解析、不做深色语法高亮推断。
   一条 `result` 的 `stack` 长这样：`["@{:kind :agent …}"]`。
 

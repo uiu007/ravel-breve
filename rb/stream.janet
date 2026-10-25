@@ -36,6 +36,8 @@
            :watch false     # 是不是 L9 的只读视图流（不进本轮列表）
            :closed false
            :error nil
+           :usage nil      # P2：provider 报的用量（取尽前的元信息块）
+           :t0 (os/clock)  # P3：建流时刻（os/clock = 秒，浮点）——配 RB_STREAM_DEADLINE_MS
            :meta (or meta @{})})
   (def ws (rb/ws))
   (array/push (ws :round) s)
@@ -51,6 +53,20 @@
     (when rb/stream-tap (rb/stream-tap s :close nil)))
   s)
 
+(defn rb/stream-deadline-check!
+  "P3：流跑太久就中止并报 60（`RB_STREAM_DEADLINE_MS`，未设 = 不限）。"
+  [s]
+  (def ms (os/getenv "RB_STREAM_DEADLINE_MS"))
+  (def lim (when ms (protect (scan-number ms))))
+  (when (and lim (get lim 0))
+    (def secs (/ (get lim 1) 1000))
+    (when (> (- (os/clock) (s :t0)) secs)
+      (put s :state :stopped)
+      (rb/stream-close! s)
+      (rb/raise (rb/exit-table :orchestration-base)
+                (string "流超时：超过 " (get lim 1) " 毫秒（RB_STREAM_DEADLINE_MS）"))))
+  nil)
+
 (defn rb/stream-next!
   "取下一块；nil = 已到末尾/已中止。"
   [s]
@@ -62,7 +78,7 @@
       (rb/stream-next! s))
 
     :open
-    (let [p (protect ((s :it)))]
+    (let [p (protect (do (rb/stream-deadline-check! s) ((s :it))))]
       (if (not (get p 0))
         (do
           (put s :state :failed)
@@ -97,8 +113,17 @@
               (rb/emit "@Chunk" [chunk s])
               chunk)
 
+            # P2：元信息块（不是文本）——记下用量、立刻累加，继续取下块，不发 @Chunk。
+            # 立刻记账（而不是等 @Done）：一轮工具调用会跨**多次 provider 请求**，
+            # 每批都可能带用量，晚记就只能留下最后一笔。
+            (and (dictionary? chunk) (chunk :usage))
+            (do
+              (put s :usage (chunk :usage))
+              (rb/usage-add! (chunk :usage))
+              (rb/stream-next! s))
+
             (rb/raise (rb/exit-table :runtime-type)
-                      (string "取块函数必须返回 String 或 nil，得到 " (type chunk)))))))
+                      (string "取块函数必须返回 String、nil 或用量块，得到 " (type chunk)))))))
 
     nil))
 
@@ -124,13 +149,56 @@
               (string "流停在待外部动作（工具调用未处理，REQ-48）：" (s :label))))
   (string (s :text)))
 
-(defn rb/stream-stop!
-  "中止（REQ-36：stop）。已结束的流不变。"
+(defn rb/stream-open?
+  "这个流还在跑（可被中止）？"
   [s]
-  (when (or (= (s :state) :new) (= (s :state) :open))
+  (and (rb/stream? s) (or (= (s :state) :new) (= (s :state) :open))))
+
+(defn rb/cancel-cascade!
+  "沿 `->` 血缘把中止传下去（P3）：本工作区里 origin 含该 agent 的流一并停。
+   返回停下来的流数（含自己）。"
+  [s]
+  (var n 0)
+  (def ws (rb/ws))
+  (def label (when (rb/stream? s) (let [a (s :agent)] (when (table? a) (a :label)))))
+  (when (rb/stream-open? s)
     (put s :state :stopped)
-    (rb/stream-close! s))
+    (rb/stream-close! s)
+    (++ n))
+  # 血缘：下游 agent 的 origin 记着上游 label → 上游停了，下游也停（D-47 的边）
+  (when label
+    (each pool [(ws :round) (ws :watch)]
+      (each d pool
+        (when (rb/stream-open? d)
+          (def da (d :agent))
+          (def org (when (table? da) (da :origin)))
+          (var hit false)
+          (each x (or org []) (when (= x label) (set hit true)))
+          (when hit
+            (set n (+ n (rb/cancel-cascade! d))))))))
+  n)
+
+(defn rb/stream-stop!
+  "中止（REQ-36：stop）。已结束的流不变；沿 `->` 血缘传播（P3）。"
+  [s]
+  (rb/cancel-cascade! s)
   s)
+
+(defn rb/streams-open
+  "本工作区里还开着的流（本轮 + 视图流）。"
+  []
+  (def ws (rb/ws))
+  (def out @[])
+  (each pool [(ws :round) (ws :watch)]
+    (each s pool (when (rb/stream-open? s) (array/push out s))))
+  out)
+
+(defn rb/cancel-all!
+  "停掉本工作区所有还开着的流（协议 `cancel` / 方言 `cancel`）。返回停下的个数。"
+  []
+  (var n 0)
+  (each s (rb/streams-open) (set n (+ n (rb/cancel-cascade! s))))
+  n)
 
 (defn rb/stream->utter!
   "REQ-46：Stream → Utter（自动路径与手动路径共用的**唯一**转换）。"

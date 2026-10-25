@@ -261,5 +261,16 @@ check_rc "配置：换进程载入仍生效" 0 $RAVEL -e "load \"$CFGW\"
 llm-get \"provider\""
 check "配置：载入后 provider 仍是 nvidia" '"nvidia"' "$(tail -1 /tmp/rb-e2e-out)"
 
+# P3：协议 cancel —— 停掉还开着的流，会话继续可用
+check_rc "cancel：协议请求得到 result" 0 bash -c "printf '{\"type\":\"cancel\"}\n' | $RAVEL --serve"
+check "cancel：带 stopped 计数且不结束会话" "yes" \
+      "$(tail -1 /tmp/rb-e2e-out | grep -q '\"stopped\":0' && grep -q '\"ok\":true' /tmp/rb-e2e-out && echo yes || echo no)"
+check_rc "cancel：之后照常求值" 0 bash -c "printf '{\"type\":\"cancel\"}\n{\"type\":\"eval\",\"src\":\"+ 1 2\"}\n' | $RAVEL --serve"
+check "cancel：栈上是 3" "yes" \
+      "$(tail -1 /tmp/rb-e2e-out | grep -q '\"stack\":\["3"\]' && echo yes || echo no)"
+# P3：方言 cancel 词（空工作区 = 0）
+check_rc "cancel 词：空工作区返回 0" 0 $RAVEL -e 'cancel'
+check "cancel 词：栈顶 0" "0" "$(cat /tmp/rb-e2e-out)"
+
 echo "端到端：通过 $pass，失败 $fail"
 [ "$fail" -eq 0 ]

@@ -62,7 +62,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0d · janet 1.42.1
+ravel breve 1.0h · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -1345,6 +1345,63 @@ $ RB_ALLOW_SHELL=1 RB_LLM=mock ./bin/ravel -e 'invoke "shell" H{ "cmd" "ls src" 
 
 ---
 
+### 14.7 用量记账：`usage`
+
+provider 报的 token 用量会记进**工作区**（不是某个流），`usage` 读一份**拷贝**：
+
+```
+agent "c" { }
+send say "你好"
+drain
+usage
+show
+```
+
+```
+@{:calls 1 :completion-tokens 5 :prompt-tokens 2 :total-tokens 7}
+"回声：你好"
+```
+
+要点：
+
+1. **`calls` = 报过账的 provider 请求数**。一轮工具调用会跨多次请求，因此一次 `send`
+   可能让 `calls` 加 2（工具批一次 + 最终文本一次），token 也各记一笔。
+2. 用量块是**元信息块**：不产生 `@Chunk`、不进流文本、不参与渲染——所以它不会污染回复。
+3. 真 provider 未必每帧都带 `usage`；不带就不记（`calls` 不涨），**不会报错**。
+4. 阈值触发的压缩就靠它起头（REQ-50 仍要求压缩策略写在钩子里）：
+
+```
+@on @RoundDone [ at "total-tokens" usage
+8000 >
+if [ "该压缩了" log ] [ ] ]
+agent "c" { }
+send say "你好"
+drain
+```
+
+（`if` 的两个引号写法要求「条件已在栈上」，所以条件单独成一行；写成
+`... 8000 > if [ … ] [ … ]` 会被当成"条件内联"的形式而报错。）
+
+实际压缩仍按 §13.3 的写法（`take` + `saysys` + 新 `agent`），核心不内置算法。
+
+### 14.8 取消：`cancel` 与 `stop` 的血缘传播
+
+```
+agent "c" { }
+send say "你好"
+stop
+cancel
+show
+```
+
+- `stop` 停**一条**流；如果这条流属于上游 agent（`->` 的前者），沿血缘把下游一并停——
+  上游作废，下游的产物就没有意义（`onfail` / 广播域用的是同一条边）。
+- `cancel` 停**所有还开着的流**，返回停下的个数（空工作区 = `0`）。
+- 协议侧同名请求 `{"type":"cancel"}` → `{"ok":true,"stopped":N}`，**不结束会话**；
+  前端「停止按钮」就发它。
+- 截止时间：`RB_STREAM_DEADLINE_MS=5000` 给每条流 5 秒。超时 = 流失败 + 退出码 `60`
+  （编排级），不是「空回复 + 0」。
+
 ## 15. 前端协议（`--serve`）
 
 一行一条 JSON。裸文本行 = `eval` 的简写；显式请求：
@@ -1353,6 +1410,7 @@ $ RB_ALLOW_SHELL=1 RB_LLM=mock ./bin/ravel -e 'invoke "shell" H{ "cmd" "ls src" 
 {"type":"eval","src":"+ 1 2","id":7}
 {"type":"ping"}
 {"type":"reset"}
+{"type":"cancel"}
 {"type":"quit"}
 ```
 
@@ -1363,7 +1421,7 @@ $ RB_ALLOW_SHELL=1 RB_LLM=mock ./bin/ravel -e 'invoke "shell" H{ "cmd" "ls src" 
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0d · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0h · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -1465,12 +1523,14 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 | L5 控制流 | `if` `when` `unless` `loop` `while` `try` `recover` |
 | L5b 错误 / 环境 | `fail` `assert` `depth` `dump` `now` `env` |
 | L6 元词表 | `:` `see` `doc` `define` |
-| L7 持久化 | `read` `write` `current` `save` `load` `compact` |
-| L8 钩子 / 工具 | `@on` `@off` `deftool` `invoke` `resend` `stop` `drain` `next` |
+| L7 持久化 / 工作区 | `read` `write` `current` `save` `load` `compact` `usage` |
+| L8 钩子 / 工具 | `@on` `@off` `deftool` `invoke` `resend` `stop` `cancel` `drain` `next` |
 | L9 前端 | `watch` `subscribe` `unsubscribe` |
 | provider 配置 | `llm` `llm-get` `llm-set` |
 
-完整栈效应见 `ravel-breve-spec-v1.0f.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`（v1.0e 已把 SF-14…SF-35 冻结；v1.0f 新增 REQ-52 处理流程层）。
+完整栈效应见 `ravel-breve-spec-v1.0h.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
+（v1.0e 已把 SF-14…SF-35 冻结；v1.0f 加 REQ-52 处理流程层；v1.0g 加沙箱与默认工具；
+v1.0h 加用量 / 取消 / 截止时间）。
 
 ---
 
@@ -1489,6 +1549,9 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 | `examples/09-hooks.breve` | `@Chunk` 钩子、手动合并路径 |
 | `examples/10-serve.sh` | 前端协议：`chunk`/`close`/跨请求状态/`reset` |
 | `examples/11-llm-config.breve` | provider 配置：`llm-get` 生效值、`llm-set` 预置 |
+| `examples/12-ptc.breve` | PTC 模式：`mode`、只有 `eval` 工具、程序内串工具 |
+| `examples/13-tools.breve` | 默认工具包：`glob` / `grep` / `edit`（`shell` 默认关）|
+| `examples/14-usage-cancel.breve` | 用量记账（`usage`）与取消（`stop` / `cancel`）|
 | `examples/run-all.sh` | 一次跑完上面全部 |
 
 ```

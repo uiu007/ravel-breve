@@ -126,6 +126,7 @@
     "llm" "rb/llm"
     "llm-set" "rb/llm-set"
     "llm-get" "rb/llm-get"
+    "usage" "rb/usage"
     # L8 钩子与流（M3）
     "@on" "rb/hook-on"
     "@off" "rb/hook-off"
@@ -133,6 +134,7 @@
     "drain" "rb/drain"
     "utter" "rb/utter"
     "stop" "rb/stop"
+    "cancel" "rb/cancel"
     # L7 持久化（M4）
     "read" "rb/read"
     "write" "rb/write"

@@ -40,6 +40,8 @@ cap/fs.janet
 cap/json.janet
 cap/http.janet
 cap/mock.janet
+cap/oai.janet
 cap/nvidia.janet
+cap/opencode.janet
 cap/llm.janet
 cap/tools.janet

@@ -42,7 +42,7 @@
 | REQ-22 | CLI 四形态 + 提示符 + `--json` | ✅ | `e2e/cli.sh`、`conformance/req-22-cli.janet` |
 | REQ-24 | 前后端分离，NDJSON over stdio（双向不阻塞） | ✅ 协议 v1 冻结（D-39） | `conformance/req-24-duplex.janet`、`e2e/cli.sh`（chunk 与 eval 同进程交织） |
 | REQ-38 | 宿主钉 1.42.x，amalgam 静态嵌入 | ✅ | `make check-vendor`、`vendor/janet/VERSION` |
-| REQ-37 | 核心不含 net/file/http/crypto，能力走能力层 | ✅ | `conformance/req-37-cap-boundary.janet`、`make test-core-only` |
+| REQ-37 | 核心不含 net/file/http/crypto，能力走能力层 | ✅ | `conformance/req-37-cap-boundary.janet`、`make test-core-only`、`make test-agent` / `make test-oc`（换 provider 不改方言代码，D-54/D-64）|
 
 ## §4.6–4.8 类型 / 词表 / 会话
 

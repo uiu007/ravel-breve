@@ -14,12 +14,13 @@
 make                 # 构建 bin/ravel（vendor/janet 静态嵌入）
 make test            # 单元 + 符合性 + 端到端 + 附录 D（core-only）
 make check-vendor    # 校验 vendor/janet 的 sha256
-bash tests/e2e/agent.sh  # 真 provider 验收（NVIDIA；无密钥则跳过）
+bash tests/e2e/agent.sh     # 真 provider 验收（NVIDIA；无密钥则跳过）
+bash tests/e2e/opencode.sh  # 真 provider 验收（OpenCode Zen/Go；无密钥则跳过）
 ```
 
 验收现状：**M6**（词表 L0–L9 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
 工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边）。
-`make test` → 365 单元/符合性 + 103 端到端 + 14 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0。
+`make test` → 369 单元/符合性 + 103 端到端 + 14 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0，`make test-oc` → 真 OpenCode 15/0。
 
 ```sh
 make clean && make
@@ -119,7 +120,8 @@ agent "reviewer" { }
 bcast say "hi" { "coder*" }   # → list Stream（2 个）
 ```
 
-真机 provider：把密钥放进 `secrets/nvidia.key`（已在 `.gitignore`，不入库）或 `NVIDIA_API_KEY`；
+真机 provider：把密钥放进 `secrets/nvidia.key` / `secrets/opencode.key`（已在 `.gitignore`，不入库）
+或 `NVIDIA_API_KEY` / `OPENCODE_API_KEY`（`RB_LLM=nvidia|opencode|mock|auto`）；
 `RB_LLM=mock` 走离线确定性 provider，`RB_MODEL` 换模型。`make test` 全程离线，
 `bash tests/e2e/agent.sh` 才是真机验收（无密钥自动跳过）。
 

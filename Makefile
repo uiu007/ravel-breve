@@ -13,7 +13,7 @@ BIN        := bin
 RB_MANIFEST := rb/MANIFEST
 RB_SRCS     := $(shell grep -v '^\s*#' $(RB_MANIFEST) | grep -v '^\s*$$')
 
-.PHONY: all test test-unit test-e2e test-agent test-core-only test-examples clean check-vendor bundle core-only
+.PHONY: all test test-unit test-e2e test-agent test-oc test-core-only test-examples clean check-vendor bundle core-only
 
 all: $(BIN)/ravel
 
@@ -53,6 +53,10 @@ test-examples: $(BIN)/ravel
 # 真 provider（NVIDIA）：需要密钥；没有则脚本自行跳过（不进 make test）
 test-agent: $(BIN)/ravel
 	bash tests/e2e/agent.sh
+
+# 真 provider 端到端（OpenCode Zen / Go，D-64）；无密钥自动跳过
+test-oc: $(BIN)/ravel
+	bash tests/e2e/opencode.sh
 
 # 附录 D 验收：剔除 cap/ 后核心仍可独立装载并完成主脊
 test-core-only: | $(BUILD)/janet

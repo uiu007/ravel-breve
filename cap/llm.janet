@@ -7,7 +7,10 @@
   "能力 :llm/chat 的实现：按配置选 provider 并转调。"
   [messages opts]
   (def provider (cap/llm-provider))
-  (def key (if (= provider "nvidia") :llm/nvidia :llm/mock))
+  (def key (case provider
+             "nvidia" :llm/nvidia
+             "opencode" :llm/opencode
+             :llm/mock))
   (def f (rb/cap-get key))
   (when (nil? f)
     (rb/raise (rb/exit-table :orchestration-base)

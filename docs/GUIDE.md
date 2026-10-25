@@ -156,6 +156,47 @@ show'
 "好的"
 ```
 
+#### 1.2.2b 换成真 provider（OpenCode Zen / Go，D-64）
+
+第二个真 provider，同样是 OpenAI 兼容的 `/chat/completions`，SSE 解析与 NVIDIA
+**共用一份**（`cap/oai.janet`）。密钥：`OPENCODE_API_KEY` 或 `secrets/opencode.key`。
+
+```
+$ RB_LLM=opencode ./bin/ravel -e 'llm-get "provider"
+show
+llm-get "model"
+show
+agent "c" { }
+send say "只回答两个字：收到"
+drain
+show
+usage
+show'
+"opencode"
+"glm-5.3-flash"
+"收到"
+@{"calls" 1 "completion-tokens" 3 "prompt-tokens" 310 "total-tokens" 313}
+```
+
+三点与 NVIDIA 不同，都已内置、无需你操心：
+
+| 差别 | 做法 |
+|---|---|
+| 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0h`（**不许**用通用 SDK 名）|
+| 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
+
+另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
+不进会话、不计入 `usage` 之外的任何地方；用量帧带 `opencode.allowance`（这次请求记了多少账），
+`usage` 词只汇总 token 那几个数。
+
+真 provider 的验收入口（无密钥自动跳过，不进 `make test`）：
+
+```
+$ make test-oc        # OpenCode
+$ make test-agent     # NVIDIA
+```
+
 #### 1.2.3 运行中换配置：`llm` / `llm-get` / `llm-set`
 
 环境变量只能在**启动前**定死。要在一局里换 provider、换模型、改上限，
@@ -163,9 +204,9 @@ show'
 
 | 配置项 | 环境变量（次优先） | 内置缺省 | 说明 |
 |---|---|---|---|
-| `provider` | `RB_LLM` | `auto` | `nvidia` / `mock` / `auto`（`auto` = 有密钥就真、否则 mock） |
-| `model` | `RB_MODEL` | `meta/llama-3.2-11b-vision-instruct` | 真 provider 的模型名 |
-| `endpoint` | `RB_ENDPOINT` | NVIDIA 官方端点 | 兼容 OpenAI 形状的服务也能接 |
+| `provider` | `RB_LLM` | `auto` | `nvidia` / `opencode` / `mock` / `auto`（`auto` = 有谁家的密钥就用谁，都没有则 `mock`） |
+| `model` | `RB_MODEL` | 按 provider：NVIDIA `meta/llama-3.2-11b-vision-instruct`，OpenCode `glm-5.3-flash` | 真 provider 的模型名 |
+| `endpoint` | `RB_ENDPOINT` | 按 provider 的官方端点 | 兼容 OpenAI 形状的服务也能接；OpenCode 另可用 `RB_OC_BASE` 换基址 |
 | `max-tokens` | `RB_MAX_TOKENS` | `512` | 本轮回复上限 |
 | `temperature` | `RB_TEMPERATURE` | `0.2` | 采样温度 |
 

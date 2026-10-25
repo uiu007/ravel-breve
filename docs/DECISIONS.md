@@ -751,3 +751,45 @@ fact 5                     # 120
   而不是"打断正在跑的 provider"——那需要线程/进程级取消，属 §5「明确不做」。
 - **验收**：`tests/unit/cancel.janet`（血缘传播 / `cancel` 计数 / `cancel` 词 / 截止时间）、
   `tests/e2e/cli.sh` 四条（协议形状 + 会话存活 + 方言词）。
+
+## D-64 OpenCode Zen / Go：第二个真 provider，SSE 解析收敛到一处
+
+**背景。** 真 provider 只有 NVIDIA 一家时，`cap/nvidia.janet` 里攒了三样东西：
+传输（HTTP + SSE）解析、用量累积、工具增量累积。加第二家时若照抄一份，
+D-56（非 SSE 一律 60）与 REQ-55（用量立刻记账）这类**已经踩过的坑**就会各有一份实现、
+各自漂移。
+
+**决定。**
+
+1. **抽出 `cap/oai.janet`**：`cap/oai-pull lines dec label` 返回取块函数，负责
+   `data:` 行、空行/注释/`event:`/`id:` 跳过、`[DONE]`、`content` 增量、`tool_calls`
+   按 `index` 累积、收尾 `usage` 帧先吐元信息块、**一切非 SSE 行报 60**。
+   provider 文件只剩三样：**密钥、请求体、请求头**。
+2. **新 provider `opencode`**（`cap/opencode.janet`，注册键 `:llm/opencode`）：
+   - 端点 `https://opencode.ai/zen/go/v1/chat/completions`，`RB_OC_BASE` 换基址
+     （给到 `/chat/completions` 也认，不重复拼）。
+   - 密钥 `OPENCODE_API_KEY` → `secrets/opencode.key`（照 D-54：密钥不进工作区/快照）。
+   - **必须**带 `User-Agent: ravel-breve/<版本>` 与 `x-opencode-session`；后者取自
+     `opts :session`（`rb/stream-start` 填 agent 标签），跨轮稳定——路由器与提示缓存要它，
+     缺了直接 `MissingSessionID`。所以 `rb/stream-start` 新增一个 `:session` 字段
+     （不影响方言、不进快照）。
+   - `User-Agent` 用 `rb/version`（干净的 `1.0h`），**不用** `rb/version-string`
+     （后者含空格与 `·`，非法 HTTP 头值）。
+3. **provider 的选择与缺省跟着 provider 走**：`cap/llm-model` / `cap/llm-endpoint`
+   的缺省按当前 provider 决定；`auto` = **nvidia > opencode > mock**（有谁家密钥用谁）。
+   `cap/llm-provider` 是 `cap/llm-model` 的前向依赖，故在文件里**定义在它前面**
+   （Janet 编译期解析符号，顺序反了就 `unknown symbol`）。
+4. **`reasoning_content` 不算正文**：思考过程不进流文本、不进会话、不触发 `@Chunk`。
+
+**为什么 `:session` 放在 `opts` 而不是工作区。** 它是**传输层**的路由提示，
+不是工作区状态：不进 `dump`、不进快照、不参与 `deep=` 往返。方言侧看不到它。
+
+**验收。**
+
+- `tests/unit/opencode.janet`（4 例，全离线：把 `:http/post-lines` 换成假行源）：
+  端点缺省与 `RB_OC_BASE` 覆盖；`provider=opencode` 时的模型/端点缺省与 `llm-set` 覆盖；
+  请求头（Bearer、`ravel-breve/` 前缀、`x-opencode-session` 两次同值、`stream:true`、
+  `include_usage`）；SSE 里 `reasoning_content` 不进正文而 `usage` 照收。
+- `tests/e2e/opencode.sh`（真 provider，`make test-oc`，无密钥跳过）：一轮对话、
+  `drain`、逐块、广播、坏密钥 60、坏模型 60、用量记账、工具调用留下 `role=tool`。15 项全过。
+- 回归：`cap/nvidia.janet` 改为调用 `cap/oai-pull`，`make test` 全绿（369 + 103 + 14 + core-only）。

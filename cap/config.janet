@@ -3,11 +3,15 @@
 # 取值优先级（D-54）：**工作区配置 > 环境变量 > 内置缺省**
 #   工作区配置：方言里 `llm-set`（`llm` 看全表、`llm-get` 看生效值）
 #   环境变量：  RB_LLM、RB_MODEL、RB_ENDPOINT、RB_MAX_TOKENS、RB_TEMPERATURE
+#               （OpenCode 另有 RB_OC_BASE / RB_OC_SESSION / OPENCODE_API_KEY）
 #   密钥**只**从这里来（不入库、不进工作区、不进快照）：
 #     NVIDIA_API_KEY，或 secrets/nvidia.key / .nvidia.key / ~/.config/ravel/nvidia.key
 
 (def cap/nv-default-model "meta/llama-3.2-11b-vision-instruct")
 (def cap/nv-endpoint "https://integrate.api.nvidia.com/v1/chat/completions")
+# D-64：OpenCode Go 的缺省模型 / 基址 / 端点（`llm-set` 可换）
+(def cap/oc-model-default "glm-5.3-flash")
+(def cap/oc-base-default "https://opencode.ai/zen/go/v1")
 
 (defn cap/read-first-line
   "读一个文件的第一个非空行（密钥文件可能有尾换行）；读不到返回 nil。"
@@ -37,6 +41,33 @@
             (when k (set found k))))
         found)))
 
+(defn cap/oc-key-paths
+  []
+  (def home (or (os/getenv "HOME") ""))
+  @["secrets/opencode.key"
+    ".opencode.key"
+    (string home "/.config/ravel/opencode.key")])
+
+(defn cap/oc-key
+  []
+  (or (os/getenv "OPENCODE_API_KEY")
+      (do
+        (var found nil)
+        (each p (cap/oc-key-paths)
+          (when (nil? found)
+            (def k (cap/read-first-line p))
+            (when k (set found k))))
+        found)))
+
+(defn cap/oc-url
+  "OpenCode 的端点：`RB_OC_BASE` 换基址；也接受已是完整 `/chat/completions` 的串。"
+  []
+  (def base (string (or (os/getenv "RB_OC_BASE") cap/oc-base-default)))
+  (if (string/has-suffix? "/chat/completions" base)
+    base
+    (string (if (string/has-suffix? "/" base) base (string base "/"))
+            "chat/completions")))
+
 # ---- 工作区配置 > 环境变量 > 缺省（D-54）--------------------------------
 
 (defn cap/cfg
@@ -58,13 +89,37 @@
     (string? v) (or (scan-number (string/trim v)) default)
     default))
 
-(defn cap/llm-model
+(defn cap/llm-provider
+  "provider：nvidia / opencode / mock / auto（缺省）。工作区配置优先，其次 RB_LLM。
+   `auto` 时按密钥可用性选：nvidia > opencode > mock（D-64）。"
   []
-  (string (cap/cfg "model" "RB_MODEL" cap/nv-default-model)))
+  (def want (string (cap/cfg "provider" "RB_LLM" "auto")))
+  (cond
+    (= want "mock") "mock"
+    (= want "nvidia") "nvidia"
+    (= want "opencode") "opencode"
+    (= want "auto") (cond
+                      (cap/nv-key) "nvidia"
+                      (cap/oc-key) "opencode"
+                      "mock")
+    (rb/raise (rb/exit-table :runtime-type)
+              (string "provider 只能是 nvidia / opencode / mock / auto，得到 " want))))
+
+(defn cap/llm-model
+  "生效模型：显式配置 > 环境变量 > 按 provider 的缺省（D-64）。"
+  []
+  (def fallback (if (= (cap/llm-provider) "opencode")
+                  cap/oc-model-default
+                  cap/nv-default-model))
+  (string (cap/cfg "model" "RB_MODEL" fallback)))
 
 (defn cap/llm-endpoint
+  "生效端点：显式配置 > 环境变量 > 按 provider 的缺省（D-64）。"
   []
-  (string (cap/cfg "endpoint" "RB_ENDPOINT" cap/nv-endpoint)))
+  (def fallback (if (= (cap/llm-provider) "opencode")
+                  (cap/oc-url)
+                  cap/nv-endpoint))
+  (string (cap/cfg "endpoint" "RB_ENDPOINT" fallback)))
 
 (defn cap/llm-max-tokens
   []
@@ -73,18 +128,6 @@
 (defn cap/llm-temperature
   []
   (cap/cfg-num "temperature" "RB_TEMPERATURE" 0.2))
-
-(defn cap/llm-provider
-  "provider：nvidia / mock / auto（缺省）。工作区配置优先，其次 RB_LLM，
-   `auto` 时「有密钥用 nvidia，否则 mock」。"
-  []
-  (def want (string (cap/cfg "provider" "RB_LLM" "auto")))
-  (cond
-    (= want "mock") "mock"
-    (= want "nvidia") "nvidia"
-    (= want "auto") (if (cap/nv-key) "nvidia" "mock")
-    (rb/raise (rb/exit-table :runtime-type)
-              (string "provider 只能是 nvidia / mock / auto，得到 " want))))
 
 # `llm-get` 的生效值：核心只存不解析，解析在这里注册（D-29 的间接层）
 (set rb/llm-resolve

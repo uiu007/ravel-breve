@@ -6,9 +6,13 @@
 #
 # 载荷的压栈顺序遵守唯一方向规则：**第一个操作数最后压**（在栈顶）。
 # 因此 `@Chunk` 的载荷写作 `Chunk Stream`，栈顶是 Chunk。
+#
+# `@Approve`（REQ-69 / D-75）是**审批**事件：工具因策略（沙箱/授权）被拒时，
+# 默认 `@Toolcall` 钩子不立刻 60，而是发 `@Approve`（载荷 `Request Stream`），
+# 由钩子填 `:decision` 与 `:grant`。缺省实现问终端（非交互 = 拒绝）。
 
 (def rb/event-names
-  @["@Start" "@Chunk" "@Fail" "@Error" "@Close" "@Toolcall" "@Done" "@RoundDone"])
+  @["@Start" "@Chunk" "@Fail" "@Error" "@Close" "@Toolcall" "@Approve" "@Done" "@RoundDone"])
 
 (defn rb/event?
   "是不是一个合法的事件名（REQ-17）。"
@@ -30,6 +34,9 @@
 
 # 默认工具调用钩子（REQ-48；实现在 rb/tools.janet，装载序更晚）
 (var rb/default-toolcall nil)
+
+# 默认审批钩子（REQ-69；同在 rb/tools.janet）
+(var rb/default-approve nil)
 
 # 事件旁路（REQ-43 的 `event` 消息）：serve 模式下把事件写成 NDJSON。
 (var rb/event-tap nil)
@@ -58,11 +65,16 @@
   []
   (when rb/default-toolcall (rb/default-toolcall)))
 
+(defn rb/default-approve-thunk
+  []
+  (when rb/default-approve (rb/default-approve)))
+
 (defn rb/ws-default-hooks
   "缺省钩子表（= `default` 模式的内容）。"
   []
   @{"@RoundDone" @[rb/default-round-done-thunk]
-    "@Toolcall" @[rb/default-toolcall-thunk]})
+    "@Toolcall" @[rb/default-toolcall-thunk]
+    "@Approve" @[rb/default-approve-thunk]})
 
 (defn rb/ws-new
   "新建一个工作区状态（REQ-30：字典 + 钩子 + 活 agent + 本轮 stream 列表）。
@@ -76,6 +88,7 @@
     :agents @[]
     :tools @{}     # REQ-48：工具表（名字 → 描述 + 引号）
     :plugins @{}   # REQ-60：插件台账（名字 → 装了哪些词/钩子/工具）
+    :grants @[]    # REQ-69：临时授权（kind + key + 剩余次数；见 rb/tools.janet）
     :config @{}    # D-54：provider 配置（llm / llm-set / llm-get）
     :round @[]
     :round-rev 0   # 本轮列表的版本号（新建流 +1；收尾据此判断「还在变」）

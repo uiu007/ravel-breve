@@ -66,8 +66,12 @@
         abs))))
 
 (defn cap/fs-check
-  "沙箱检查：根外的路径直接报错（L7 的写词会把它归到 41）。"
-  [path]
+  "沙箱检查：根外的路径报错（L7 的写词会把它归到 41）。
+
+   v1.0p / REQ-69：这份拒绝带 `:rb-denied` 与一份**请求表**（`:rb-request`），
+   于是模型发起的调用可以拿去问人一次（`@Approve`），而不是整轮报废。
+   检查先看**临时授权**（`rb/grant-find` 查 kind `fs`）——授权过的越界照常放行。"
+  [path &opt op]
   (def root (cap/fs-root))
   (when root
     (def r (cap/fs-canon root))
@@ -75,8 +79,19 @@
     (def inside? (or (= p r)
                      (string/has-prefix? (string r "/") p)))
     (when (not inside?)
-      (error (string "沙箱拒绝（根 = " r "）：" path
-                     "；确需越界请设 RB_SANDBOX=none（D-60）"))))
+      (when (nil? (rb/grant-find "fs" p))
+        (error @{:rb-code (if (= op "write")
+                            (rb/exit-table :io-write)
+                            (rb/exit-table :io-read))
+                 :rb-msg (string "沙箱拒绝（根 = " r "）：" path
+                                 "；确需越界请设 RB_SANDBOX=none（D-60）")
+                 :rb-denied true
+                 :rb-request @{:kind "fs"
+                               :path path
+                               :canon p
+                               :root r
+                               :dir (cap/fs-dirname p)
+                               :op (or op "read")}}))))
   path)
 
 (defn cap/fs-read
@@ -87,7 +102,7 @@
 
 (defn cap/fs-write
   [text path]
-  (cap/fs-check path)
+  (cap/fs-check path "write")
   (def p (protect (spit path text)))
   (when (not (get p 0))
     (error (string "写入失败：" path "（" (get p 1) "）")))
@@ -95,7 +110,7 @@
 
 (defn cap/fs-append
   [text path]
-  (cap/fs-check path)
+  (cap/fs-check path "write")
   (def f (file/open path :a))
   (when (nil? f) (error (string "追加失败：" path)))
   (file/write f text)

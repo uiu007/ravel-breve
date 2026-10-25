@@ -401,6 +401,40 @@ check "模式：关掉后的报错点名是哪个设定" "yes" \
 check_rc "模式：RB_ALLOW_SHELL=0 压过工作区设定 → 60" 60 \
       env RB_ALLOW_SHELL=0 $RAVEL -e 'invoke "shell" H{ "cmd" "echo hi" }'
 
+# REQ-69：临时授权与审批
+echo hi > /tmp/rb-e2e-approve.txt
+check "审批：grant 之后越界读照常成功" '"hi\n"' \
+      "$($RAVEL -e 'grant "fs" "/tmp"
+read "/tmp/rb-e2e-approve.txt"' 2>/dev/null | tail -1)"
+check_rc "审批：没授权 + 模型发起 + 非交互 → 60" 60 \
+      env RB_MOCK_TOOL='read:{"path":"/tmp/rb-e2e-approve.txt"}' $RAVEL -e \
+      'agent "c" { }
+dup
+send say "读"
+drain'
+env RB_MOCK_TOOL='read:{"path":"/tmp/rb-e2e-approve.txt"}' $RAVEL -e \
+  'agent "c" { }
+dup
+send say "读"
+drain' >/tmp/rb-e2e-out 2>&1
+check "审批：非交互的报错给出 grant 这条退路" "yes" \
+      "$(grep -q 'grant' /tmp/rb-e2e-out && echo yes || echo no)"
+check "审批：@off @Approve + accept-dir → 自动批准，本轮成功" "yes" \
+      "$(env RB_MOCK_TOOL='read:{"path":"/tmp/rb-e2e-approve.txt"}' $RAVEL -e \
+           '@off @Approve
+@on @Approve [ accept-dir ]
+agent "c" { }
+dup
+send say "读"
+drain
+pop
+session' 2>/dev/null | grep -q '1  hi' && echo yes || echo no)"
+check_rc "审批：脚本里的 invoke 不走审批（仍 60）" 60 $RAVEL -e \
+  'invoke "read" H{ "path" "/tmp/rb-e2e-approve.txt" }'
+check_rc "审批：RB_SANDBOX=none 仍然是最直接的一条退路" 0 \
+      env RB_SANDBOX=none $RAVEL -e 'read "/tmp/rb-e2e-approve.txt"'
+rm -f /tmp/rb-e2e-approve.txt
+
 check_rc "core-only：--presets 缺能力 → 60" 60 \
       build/janet -e '(each f (parse-all (slurp "build/core-only/rb-bundle.janet")) (eval f (curenv)))
                       (os/exit (rb/cli-main @["--presets"]))' 

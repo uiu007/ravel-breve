@@ -283,3 +283,79 @@ RB_MOCK_TOOL='shel:{"cmd":"echo hi"}' …
   且危险命令的约束该在权限层，不该在 schema 里）。
 - `deftool` 的用户工具是否也要参数模式：目前只有可选第四参给**能力层/模式**用；
   方言词 `deftool` 仍是三个参数（用户工具的体自己 `at`），要不要开放为第四个参数待定。
+
+## 8. v1.0p 追记：越界与审批（D-75 / REQ-69）
+
+一句话：**越界不再只剩退出码**。模型撞上沙箱 → 发 `@Approve` → 人（或钩子）点头 → 记一条**临时**授权
+→ 重试一次 → 结果照常回给模型；不点头才 `60`。
+
+### 8.1 八步人工验收
+
+```sh
+# 预备：一个沙箱根之外的文件
+echo hi > /tmp/rb-chk8.txt
+
+# ① 请求表长什么样（模型路径的失败带 :rb-denied 与 :rb-request）
+./bin/ravel -e 'agent "c" { }
+dup
+send say "读 /tmp/rb-chk8.txt"
+drain' | head -3            # 非交互 → 拒绝，消息点名 grant 与 RB_SANDBOX
+
+# ② 预先授权：三个词
+./bin/ravel -e 'grant "fs" "/tmp"
+grants
+read "/tmp/rb-chk8.txt"'
+
+# ③ 撤销
+./bin/ravel -e 'grant "fs" "/tmp"
+ungrant
+grants'
+
+# ④ 自动点头（脚本 / CI 的写法）：换掉默认钩子
+RB_MOCK_TOOL='read:{"path":"/tmp/rb-chk8.txt"}' ./bin/ravel -e '@off @Approve
+@on @Approve [ accept-dir ]
+agent "c" { }
+dup
+send say "读"
+drain
+pop
+session'
+
+# ⑤ 关掉审批（回到 v1.0o 的行为：直接 60）
+RB_MOCK_TOOL='read:{"path":"/tmp/rb-chk8.txt"}' ./bin/ravel -e '@off @Approve
+agent "c" { }
+send say "读"
+drain'
+
+# ⑥ 脚本路径不走审批
+./bin/ravel -e 'invoke "read" H{ "path" "/tmp/rb-chk8.txt" }'
+
+# ⑦ 最直接的退路还在
+RB_SANDBOX=./bin/ravel …
+RB_SANDBOX=none ./bin/ravel -e 'read "/tmp/rb-chk8.txt"'
+
+# ⑧ 例程与版本
+./examples/run-all.sh
+./bin/ravel -v
+```
+
+| # | 手工动作 | 期望 |
+|---|---|---|
+| 1 | 模型读根外文件（管道里跑） | `60`；消息里**既有** `grant` 又有 `RB_SANDBOX` |
+| 2 | `grant "fs" "/tmp"` 后 `read` | 成功；`grants` 打出 `@{:key "/tmp" :kind "fs"}` |
+| 3 | `ungrant` | 返回条数；`grants` 空 |
+| 4 | `@off @Approve` + `[ accept-dir ]` | 本轮**成功**，会话里有 `role = "tool"` 的内容，且留下一条 `/tmp` 授权 |
+| 5 | 只 `@off @Approve` | 回到旧行为：`60`，消息是原样的「沙箱拒绝」 |
+| 6 | `invoke "read"` 根外 | `60`，**不产生**授权（没人替程序员点头）|
+| 7 | `RB_SANDBOX=none` | 成功（D-60 的旧退路没被动过）|
+| 8 | `make test` / `-v` | `437 + 162 + 19 + core-only` 全绿；`ravel breve 1.0p · janet 1.42.1` |
+
+### 8.2 仍然留给用户裁决
+
+- **授权要不要入档（写进工作区快照）**：本版不入档——"临时的"要有明确边界；
+  跨会话的信任请用 `RB_SANDBOX` 或启动脚本里的 `grant`。
+- **别的 `kind`**：网络（`:net`）、`shell` 命令白名单都可以套同一套请求表；
+  当前能力层只有 `:fs` 会产出策略拒绝，所以只做了 `:fs`。
+- **审批要不要进前端事件流**：现在是 stderr 的交互提示，没有 `@Approve` 的订阅接口
+  （前端若要弹出对话框，需要协议里加一条）。
+- **`y` / `d` 之外是否要 `a`（always，一次会话内全部目录）**：默认拒绝更安全，先不加。

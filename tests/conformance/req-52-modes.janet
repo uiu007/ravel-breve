@@ -15,7 +15,7 @@
     (is (table? m) "mode-of 交出模式表")
     (is= :mode (m :kind) "有类型标记（D-59）")
     (is= "default" (m :name))
-    (is= 8 (length (keys (m :hooks))) "8 个事件齐全（未声明 = 空数组）")
+    (is= 9 (length (keys (m :hooks))) "9 个事件齐全（未声明 = 空数组）")
     (is= (rb/mode-get "default") m "与预制 default 相等")
     (is= 0 (run-in-exit env "mode mode-of"))))
 

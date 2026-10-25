@@ -51,6 +51,67 @@
   (rb/exit-plan!)
   nil)
 
+# ---- 临时授权（REQ-69 / D-75）------------------------------------------
+#
+# 模型发起的一次越界调用会先问人（`@Approve`）。人不在场（脚本 / CI / --serve）时
+# 就用这两个词**预先**授权——比 `RB_SANDBOX=none` 细，比改模式小：
+#   grant "fs" "/home/uiu/project/shader-learning"   → 该目录之下本工作区随便读写
+#   grants                                           → 现在有哪些授权
+#   ungrant                                          → 全撤掉
+
+(defn rb/grant
+  "Kind Key -- ；登记一条临时授权（到本工作区结束；`reset` 即失效）。
+   只对**能力层认得的 kind** 有意义（目前 `fs`）。"
+  []
+  (def kind (rb/pop))   # 最左实参先被消费：`grant "fs" "/tmp"` → 先弹 kind
+  (def key (rb/pop))
+  (when (not (string? kind))
+    (rb/raise (rb/exit-table :runtime-type) "grant 的第一个参数要是字符串（kind，如 \"fs\"）"))
+  (when (not (string? key))
+    (rb/raise (rb/exit-table :runtime-type) "grant 的第二个参数要是字符串（key，如一个路径）"))
+  (rb/grant-add! kind key)
+  (rb/push (string "已授权：" kind " " key "（到本工作区结束）")))
+
+(defn rb/grants
+  "-- list ；当前临时授权（表数组的拷贝）。"
+  []
+  (rb/push (rb/grants-of)))
+
+# 裁决词（REQ-69）：在 `@on @Approve [ … ]` 里用，替代默认的「问终端」。
+# 请求表是 `@Approve` 的载荷（栈顶），这几个词弹出它、写进裁决。
+
+(defn rb/accept
+  "Request -- ；允许这一次（登记一条 uses = 1 的授权，工具会被重试一次）。"
+  []
+  (def req (rb/pop))
+  (when (table? req)
+    (put req :decision :allow)
+    (put req :grant @{:kind (req :kind) :key (or (req :path) (req :key)) :uses 1}))
+  nil)
+
+(defn rb/accept-dir
+  "Request -- ；允许这个目录（到本工作区结束）：脚本 / CI 的常用写法。"
+  []
+  (def req (rb/pop))
+  (when (table? req)
+    (put req :decision :allow)
+    (put req :grant @{:kind (req :kind) :key (or (req :dir) (req :path))}))
+  nil)
+
+(defn rb/reject
+  "Request -- ；拒绝（错误消息用请求里那句，退出码 60）。"
+  []
+  (def req (rb/pop))
+  (when (table? req)
+    (put req :decision :deny)
+    (put req :msg (string "已拒绝：" (or (req :path) (req :key) "?"))))
+  nil)
+
+(defn rb/ungrant
+  "-- n ；撤掉所有临时授权，返回撤掉的条数。"
+  []
+  (rb/push (rb/grant-clear!)))
+
 (defn rb/flag-set
   "Value Key -- ；写一个历史标记开关（值必须是布尔；nil = 删除该项）。"
   []

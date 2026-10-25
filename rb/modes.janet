@@ -25,10 +25,10 @@
 # 用户 `@on` 出来的钩子也能被 `mode-of` 收成一份可再 `mode` 回去的模式。
 
 (def rb/mode-events
-  @["@Start" "@Chunk" "@Fail" "@Error" "@Close" "@Toolcall" "@Done" "@RoundDone"])
+  @["@Start" "@Chunk" "@Fail" "@Error" "@Close" "@Toolcall" "@Approve" "@Done" "@RoundDone"])
 
 (defn rb/mode-hooks-empty
-  "8 个事件齐全、每个都是空数组的钩子表（模式的规范形状）。"
+  "9 个事件齐全、每个都是空数组的钩子表（模式的规范形状）。"
   []
   (def h @{})
   (each e rb/mode-events (put h e @[]))
@@ -290,7 +290,8 @@
       "dsh preset ptc 的复刻：wire 上只有 eval（呈现层），程序里 invoke 任何工具"
       @{"allow-shell" true}
       @{"@RoundDone" @[rb/default-round-done-thunk]
-        "@Toolcall" @[rb/default-toolcall-thunk]}
+        "@Toolcall" @[rb/default-toolcall-thunk]
+        "@Approve" @[rb/default-approve-thunk]}
       rb/ptc-system
       (merge (table/clone (rb/cap-default-tools))
              @{"eval" @{:desc (string "执行一段 ravel breve 程序并返回栈顶；"

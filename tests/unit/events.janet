@@ -2,7 +2,7 @@
 
 (deftest "events: 事件名表就是规格附录列出的八个"
   (fn []
-    (is= 8 (length rb/event-names))
+    (is= 9 (length rb/event-names))
     (each e @["@Start" "@Chunk" "@Fail" "@Error" "@Close" "@Toolcall" "@Done" "@RoundDone"]
       (is (rb/event? e) (string "应认识事件 " e)))
     (is (not (rb/event? "@Nope")) "未列出的名字不算事件")

@@ -65,7 +65,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0o · janet 1.42.1
+ravel breve 1.0p · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -191,7 +191,7 @@ show'
 | 差别 | 做法 |
 |---|---|
 | 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
-| 必须自称客户端 | `User-Agent: ravel-breve/1.0o`（**不许**用通用 SDK 名）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0p`（**不许**用通用 SDK 名）|
 | 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
 
 另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
@@ -1057,7 +1057,8 @@ origin'
 
 ## 13. 钩子
 
-事件：`@Start` `@Chunk` `@Fail` `@Error` `@Close` `@Toolcall` `@Done` `@RoundDone`。
+事件：`@Start` `@Chunk` `@Fail` `@Error` `@Close` `@Toolcall` `@Done` `@RoundDone` `@Approve`。
+（最后一个只有模型发起的工具调用撞上策略拒绝时才会到来，见 §14.5.8。）
 注册用 `@on 事件 [ 引号 ]`，注销用 `@off 事件 [ 引号 ]`（不给引号 = 清空该事件）。
 
 **钩子不许改栈**（D-25）：钩子跑完，栈会被恢复到跑之前的深度。
@@ -1239,7 +1240,8 @@ $ RB_LLM=mock ./bin/ravel -e 'modes'
 
 模式表的形状（`mode-of` 的产物）：
 `@{:kind :mode :name :doc :flags :hooks :prompt :tools :wire}`，
-其中 `:hooks` **8 个事件全在**（未声明 = 空数组），于是"没挂钩子"和"没写这个事件"不会混淆。
+其中 `:hooks` **9 个事件全在**（未声明 = 空数组；v1.0p 起多一个 `@Approve`，见 §14.5.8），
+于是"没挂钩子"和"没写这个事件"不会混淆。
 
 五个预制模式（v1.0m / REQ-65）：`default` 是本仓的最小缺省，
 另外四个是 [DeepSeek harness](https://github.com/deepseek-ai/deepseek-harness)
@@ -1489,6 +1491,68 @@ mode-name'
 
 ---
 
+### 14.5.8 越界与审批：`@Approve` 与三个授权词（REQ-69）
+
+沙箱（§14.6 / D-60）根 = 当前目录。模型想读根外的文件时，v1.0o 及以前只有一条路：
+**报错 → 60 → 整轮报废**。v1.0p 在这条路上加了一道**审批**：
+
+```
+模型发起的调用撞上策略 ──→ @Approve（请求表：kind / path / dir / root / op）
+                              ├─ 允许 → 记一条**临时**授权 → 重试一次 → 结果回给模型
+                              └─ 拒绝 → 60，消息点名「怎么预先授权」
+```
+
+缺省钩子在终端里问一句：
+
+```
+y        只这一次（uses = 1）
+d        这个目录（到本工作区结束；目录就是请求里的 :dir）
+回车      拒绝
+```
+
+**非交互**（管道、`--serve`、测试）一律拒绝，并把两条退路写进消息：
+`grant "fs" "…"` 或者 `RB_SANDBOX=none`（旧退路没被动过）。
+
+三个授权词（临时：到本工作区结束，`reset` 清空）：
+
+```
+$ RB_LLM=mock ./bin/ravel -e 'grant "fs" "/tmp"
+grants
+read "/tmp/rb-guide.txt"'
+"已授权：fs /tmp（到本工作区结束）"
+@{:key "/tmp" :kind "fs"}
+"越界也没问题\n"
+$ RB_LLM=mock ./bin/ravel -e 'grant "fs" "/tmp"
+ungrant'
+1
+```
+
+- 最左实参先被消费：`grant "fs" "/tmp"` 是 `Kind` 后 `Key`（栈效应 `Kind Key --`）。
+- 授权按**目录段**对齐：`/tmp/x` 覆盖 `/tmp/x/a`，不覆盖 `/tmp/x2`。
+- `y`（只这一次）的计数按**工具调用**算：一次调用里工具会查好几遍授权，查的时候不扣，
+  重试收尾才扣一次——所以"只这一次"真的只放一次。
+- 脚本 / CI 想**自动点头**，换掉默认钩子（`@off` 是既有的明文手段）：
+
+```
+@off @Approve
+@on @Approve [ accept-dir ]      # accept 只放一次；reject 显式拒绝
+```
+
+- **`invoke` 不走审批**：脚本里的参数是人写的，越界照旧 `40` / `41`（工具路径 `60`）。
+  没人替程序员点头——这与 §14.5.5 的"手误只回给模型"是同一条账本原则。
+- `@off @Approve` 之后没人裁决 → 直接 `60`，回到 v1.0o 的行为。
+
+```
+# 关掉审批，看旧行为
+$ RB_MOCK_TOOL='read:{"path":"/tmp/rb-guide.txt"}' RB_LLM=mock ./bin/ravel -e '@off @Approve
+agent "c" { }
+send say "读"
+drain'
+ravel: 流失败：工具失败：read：沙箱拒绝（根 = …）：/tmp/rb-guide.txt    # 60
+```
+
+---
+
 ### 14.6 默认工具包（`read` / `write` / `edit` / `grep` / `glob` / `shell`）
 
 能力层（`cap/tools.janet`）建工作区时就装好六个工具，所以 `invoke` 直接能用，
@@ -1521,7 +1585,8 @@ $ RB_LLM=mock ./bin/ravel -e 'invoke "edit" H{ "path" "build/tmp/g.txt" "old" "b
 
 - 参数还可以写**别名**（§14.5.5）：`command` = `cmd`、`file_path` = `path`、`old_string` = `old`……
   模型常写的那几个都在表里；`invoke` 用别名的效果与规范名相同。
-- 五个文件工具都守 **D-60 的沙箱**（根 = 当前目录）：越界 → `60`（工具本体失败）。
+- 五个文件工具都守 **D-60 的沙箱**（根 = 当前目录）：越界 → `60`（工具本体失败）；
+  模型发起的调用会先走**审批**（§14.5.8）：批准过一次就重试，拒绝才 60。
 - `grep` / `glob` 是**字面量/通配**，不是正则：`edit` 的 `old` 抄错一个字就会报「找不到」。
 - `shell` 有自己的**前置设定** `allow-shell`（§14.5.4）：它随模式一起来，所以缺省就能用；
   一句 `sh -c` 等于绕过文件沙箱，所以关掉它只需要一行：
@@ -1823,7 +1888,7 @@ $ tools/oc-setup.sh --local             # 不想写家目录：配置写 ./.rave
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0o · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0p · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -1925,7 +1990,7 @@ ravel> 42
 | 工具 | `deftool "名字" "说明" [ … ]` | 从工具表删除（旧工具体一并还原）|
 
 **核心层装不了**：词法 / 转译 / 栈 / 流 / agent / 钩子机制 / 持久化 / 协议 / 退出码 / 核心词表
-都不是插件能碰的；事件名也是闭集（`@Start` … `@RoundDone` 之外 → 31）。
+都不是插件能碰的；事件名也是闭集（`@Start` … `@Approve` 列表之外 → 31）。
 判断标准很简单：**这件事用户手打同样的源能不能做**——能，就是插件；不能，那是规格修订。
 
 样板（`skills/ravel-breve-plugin/plugin.breve`，可直接跑）：
@@ -2029,10 +2094,10 @@ ravel> ()
 | L8 钩子 / 工具 | `@on` `@off` `deftool` `invoke` `resend` `stop` `cancel` `drain` `next` |
 | L9 前端 | `watch` `subscribe` `unsubscribe` |
 | L9b 插件 | `plug` `plugins` `unplug` |
-| L10 处理流程 | `mode` `modes` `mode-of` `mode-name` `mode-prompt` `mode-tools` `flag` `flag-set` `enter-plan` `exit-plan` |
+| L10 处理流程 | `mode` `modes` `mode-of` `mode-name` `mode-prompt` `mode-tools` `flag` `flag-set` `enter-plan` `exit-plan` `grant` `grants` `ungrant` `accept` `accept-dir` `reject` |
 | provider 配置 | `llm` `llm-get` `llm-set` `llm-models` `llm-auto` `llm-import` `llm-export` |
 
-完整栈效应见 `ravel-breve-spec-v1.0o.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
+完整栈效应见 `ravel-breve-spec-v1.0p.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
 （v1.0e 已把 SF-14…SF-35 冻结；v1.0f 加 REQ-52 处理流程层；v1.0g 加沙箱与默认工具；
 v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型列表；
 v1.0j 加插件 ABI 与 skills；v1.0k 加配置预设与启动装载；v1.0l 加预制的可发现性；
@@ -2062,6 +2127,7 @@ v1.0m 加 dsh 四个预置的复刻、`wire` 呈现层与正交的 plan）。
 | `examples/16-plugins.sh` | 插件：`plug` / `plugins` / `unplug` 的装-用-卸全程 |
 | `examples/17-presets.sh` | 配置预设：`--preset` / `RB_PRESET` / 用户配置文件 / `llm-import` / `llm-export` |
 | `examples/18-modes.sh` | 处理流程模式：五个预置、wire（注册 ≠ 公示）、plan 正交、模式设定（REQ-67）|
+| `examples/19-approve.breve` | 越界与审批：`grant` / `grants` / `ungrant`、`@Approve` 与裁决词（REQ-69）|
 | `examples/run-all.sh` | 一次跑完上面全部 |
 
 ```

@@ -1,8 +1,8 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0o.md`**（工具的参数）；
-`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0n.md` 为历史原文。
-状态：**M16**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+依据规格：**`ravel-breve-spec-v1.0p.md`**（越界与审批）；
+`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0o.md` 为历史原文。
+状态：**M17**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
 > v1.0d 新增 **REQ-47…REQ-51**（见文末）；**v1.0e 不新增 REQ**（只把 SF-14…SF-35 冻结，见其附录 I）；
@@ -13,6 +13,9 @@
 > **v1.0j 新增 REQ-60 / REQ-61**（插件装载卸载、插件编写 skills 的分层，见其 §4.17 与附录 O）；
 > **v1.0k 新增 REQ-62 / REQ-63**（配置预设的导入导出、启动装载，见其 §4.18 与附录 P）；
 > **v1.0l 新增 REQ-64**（预制的可发现性，见其 §4.19 与附录 Q）；
+> **v1.0p 新增 REQ-69**（策略拒绝的请求表、`@Approve` 事件、临时授权 `grant`/`grants`/`ungrant`，
+> 见其 §4.14 与附录 V），并随之修订 REQ-17（事件集 8 → 9）与 REQ-53（先查授权）；
+> 依据规格 `ravel-breve-spec-v1.0p.md`，状态 **M17**。
 > **v1.0o 新增 REQ-68**（工具的参数形状、别名、模型手误回给模型，见其 §4.14 与附录 U），
 > 并随之修订 REQ-48 / REQ-54；依据规格 `ravel-breve-spec-v1.0o.md`，状态 **M16**。
 > **v1.0n 新增 REQ-67**（工具的前置设定随模式来、设定不满足的工具不上 wire，见其 §4.14 与附录 T），
@@ -363,3 +366,11 @@ D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
 | REQ-68 | 公示的工具必须带具体 `parameters`；参数别名（`command` = `cmd` …）；模型发起的调用里**参数错误**作为 `role=tool` 的结果回给模型、本轮继续；环境侧失败与 `invoke` 仍 `60` | `conformance/req-68-tool-args.janet`（8 条）、`e2e/cli.sh`（7 条：别名成功、错参数名仍 0、会话里有「接受：」、`invoke` → 60、越界 → 60）|
 | REQ-48（修订）| 「工具失败 → 60」只适用于环境侧失败与脚本路径；模型发起的参数错误走回话通道 | 同上 |
 | REQ-54（修订）| 六个工具参数名附别名表；`parameters` 的形状要求归 REQ-68 | 同上 |
+
+## v1.0p 新增 REQ（69）+ REQ-17 / REQ-53 修订
+
+| REQ | 内容 | 测试 |
+|---|---|---|
+| REQ-69 | 策略拒绝带请求表（`:rb-denied` + `:rb-request`：`kind`/`path`/`dir`/`root`/`op`）；模型发起的调用先发 `@Approve`（载荷 `Request Stream`），钩子写 `:decision` + `:grant`；允许 → 登记临时授权并**重试一次**，拒绝 → `60` 且消息点名退路；授权带 `uses`（`nil` = 到工作区结束）、按目录段对齐、`reset` 清空；`grant`/`grants`/`ungrant` 与裁决词 `accept`/`accept-dir`/`reject`；`invoke` 不走审批；非交互默认拒绝；`@off @Approve` 回到旧行为 | `conformance/req-69-approve.janet`（10 条）、`e2e/cli.sh`（6 条：`grant` 后越界读 → 0、非交互 → 60、消息含 `grant`、自动批准 → 0、`invoke` → 60、`RB_SANDBOX=none` → 0）、`examples/19-approve.breve` |
+| REQ-17（修订）| 事件集 8 → **9**：新增 `@Approve`（第 9 个），缺省工作区就有默认审批钩子 | `unit/events.janet`、`unit/modes.janet`、`conformance/req-52-modes.janet`（事件数 9）；`conformance/req-69-approve.janet`（缺省钩子在位）|
+| REQ-53（修订）| 沙箱判定先查临时授权（`@Approve` / `grant`），命中即放行并消耗一次 `uses`；未命中才抛带标记的拒绝 | `conformance/req-69-approve.janet`（请求表字段、授权放行、`uses` 用完即销）|

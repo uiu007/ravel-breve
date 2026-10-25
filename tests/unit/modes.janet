@@ -12,7 +12,7 @@
     (def cap (val-in env rb/mode-capture))
     (is= "default" (cap :name) "名字沿用当前模式")
     (is= preset cap "整个模式表（含钩子对象、开关、工具）deep= 相等")
-    (is= 8 (length (keys (cap :hooks))) "8 个事件齐全（未声明 = 空数组，形状规范）")
+    (is= 9 (length (keys (cap :hooks))) "9 个事件齐全（未声明 = 空数组，形状规范）")
     (is= 1 (length (get (cap :hooks) "@RoundDone")))
     (is= 1 (length (get (cap :hooks) "@Toolcall")))
     (is= 0 (length (get (cap :hooks) "@Chunk")))))

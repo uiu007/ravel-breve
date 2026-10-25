@@ -127,6 +127,13 @@
     "flag-set" "rb/flag-set"
     "enter-plan" "rb/enter-plan"
     "exit-plan" "rb/exit-plan"
+    # 临时授权（REQ-69 / D-75）
+    "grant" "rb/grant"
+    "grants" "rb/grants"
+    "ungrant" "rb/ungrant"
+    "accept" "rb/accept"
+    "accept-dir" "rb/accept-dir"
+    "reject" "rb/reject"
     # provider 配置（D-54）
     "llm" "rb/llm"
     "llm-set" "rb/llm-set"

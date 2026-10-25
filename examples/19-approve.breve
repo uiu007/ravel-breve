@@ -1,0 +1,46 @@
+# 19 越界与时审批（REQ-69 / D-75）
+#
+# 离线跑法：RB_LLM=mock ./bin/ravel examples/19-approve.breve
+#
+# 沙箱根缺省 = 当前目录（D-60）。模型想读根外的文件时，v1.0o 及以前只会
+# 「沙箱拒绝」→ 60 → 整轮失败。v1.0p 起这条路上多了一道**审批**：
+#   策略拒绝 → @Approve（请求表） → 允许则登记**临时**授权 → 重试一次
+#   拒绝 → 仍然 60，但消息点名「怎么预先授权」。
+#
+# 三个授权词：`grant`（Kind Key）、`grants`、`ungrant`。授权是临时的——
+# 到本工作区结束，或被 `reset` 清掉。
+
+# 1) 显式授权：目录 `/tmp` 在沙箱根之外（最左实参先被消费：先 Kind 后 Key）
+grant "fs" "/tmp"
+show
+
+# 2) 看一眼授权表：`kind` 与 `key` 两项，`uses` 缺省 = 到工作区结束
+grants
+show
+
+# 3) 现在越界读是允许的
+write "越界也没问题\n" "/tmp/ravel-19.txt"
+read "/tmp/ravel-19.txt"
+show
+
+# 4) 撤销
+ungrant
+show
+grants
+show
+
+# 5) 模型发起的调用走的是另一条路：它没有 `grant` 可写，于是发 `@Approve`。
+#    缺省钩子在交互终端里问 `[y] 只这一次 / [d] 这个目录 / [回车] 拒绝`；
+#    非交互（管道、--serve、测试）一律拒绝，并把下面这两条退路写进错误消息：
+#      grant "fs" "/tmp"        或者      RB_SANDBOX=none
+#
+#    脚本 / CI 想自动点头，就换掉默认钩子（`@off` 是关闭自动行为的明文手段）：
+#      @off @Approve
+#      @on @Approve [ accept-dir ]      # 或者 [ accept ] 只放一次
+#    三个裁决词：accept（这一次）、accept-dir（这个目录）、reject（拒绝）。
+#
+#    下面这段只演示钩子的写法（不发起模型调用），所以不会有请求进来：
+@off @Approve
+@on @Approve [ accept-dir ]
+"钩子已换成 accept-dir"
+show

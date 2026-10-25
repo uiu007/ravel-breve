@@ -21,7 +21,7 @@ bash tests/e2e/opencode.sh  # 真 provider 验收（OpenCode Zen/Go；无密钥�
 
 验收现状：**M10**（词表 L0–L10 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
 工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边 + 用量 / 取消 / 截止 + 请求头 / 模型列表 + 插件 ABI）。
-`make test` → 390 单元/符合性 + 103 端到端 + 16 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0，`make test-oc` → 真 OpenCode 25/0。
+`make test` → 391 单元/符合性 + 103 端到端 + 16 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0，`make test-oc` → 真 OpenCode 25/0。
 
 ```sh
 make clean && make

@@ -40,8 +40,17 @@
                     :ctrl-a 1 :ctrl-b 2 :ctrl-c 3 :ctrl-d 4 :ctrl-e 5 :ctrl-f 6
                     :tab 9 :enter 13 :ctrl-k 11 :ctrl-l 12
                     :ctrl-n 14 :ctrl-p 16 :ctrl-u 21 :ctrl-w 23 :backspace 127
+                    :bs 8 :del -107
                     (error (string "测试里没有这个键：" p))))))
   codes)
+
+(defn line-state-of
+  "喂键码，返回编辑状态（用来断言**光标位置**，不只是文本）。"
+  [& parts]
+  (def st (rb/line-state @[]))
+  (each c (line-ed ;parts)
+    (when (rb/line-apply-key! st c) (break)))
+  st)
 
 # ---- 键码表 --------------------------------------------------------------
 
@@ -97,6 +106,42 @@
     (is= "ac" (line-run (line-ed "abc" :ctrl-a :right :delete)))
     (is= "" (line-run (line-ed "中" :backspace)))
     (is= "中文" (line-run (line-ed "中文字" :ctrl-a :end :backspace)))))
+
+(deftest "行编辑：退格删光标左边的字，且光标跟着左移（D-68）"
+  (fn []
+    # 文本对（既有断言），光标也要对
+    (def st (line-state-of "abcdef" :left :left :left))
+    (is= 3 (st :cur) "三次左移后光标在 3")
+    (rb/line-apply-key! st 127)
+    (is= "abdef" (rb/line-text (st :cps)) "退格删掉光标左边的 c")
+    (is= 2 (st :cur) "光标跟着退到 2（不是停在 3）")
+    # 连按退格：不吃掉光标已经越过的字
+    (rb/line-apply-key! st 127)
+    (is= "adef" (rb/line-text (st :cps)) "再退格删的是 b")
+    (is= 1 (st :cur))
+    # 0x08（很多终端把它当退格）与 0x7f 等价
+    (def st2 (line-state-of "abc" :left :bs))
+    (is= "ac" (rb/line-text (st2 :cps)) "0x08 也是退格")
+    (is= 1 (st2 :cur))
+    # Delete（CSI 3~）仍然是删光标右边，光标不动
+    (def st3 (line-state-of "abc" :left :del))
+    (is= "ab" (rb/line-text (st3 :cps)) "Delete 删光标右边的 c")
+    (is= 2 (st3 :cur) "Delete 后光标不动")
+    # C-k / C-u 的光标行为
+    (def st4 (line-state-of "abcdef" :left :left :ctrl-k))
+    (is= "abcd" (rb/line-text (st4 :cps)))
+    (is= 4 (st4 :cur) "C-k 光标不动")
+    (def st5 (line-state-of "abcdef" :left :left :ctrl-u))
+    (is= "ef" (rb/line-text (st5 :cps)))
+    (is= 0 (st5 :cur) "C-u 光标回到行首")
+    # 行尾退格（最常见的路径）仍然正确
+    (def st6 (line-state-of "abc" :backspace))
+    (is= "ab" (rb/line-text (st6 :cps)))
+    (is= 2 (st6 :cur))
+    # CJK 只删一个字，且光标按码位走
+    (def st7 (line-state-of "中文字" :left :backspace))
+    (is= "中字" (rb/line-text (st7 :cps)) "退格删掉「文」")
+    (is= 1 (st7 :cur) "光标按码位退一格，不是按字节")))
 
 (deftest "行编辑：Tab 插两个空格"
   (fn []

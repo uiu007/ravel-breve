@@ -34,7 +34,7 @@
     -108 :word-right -109 :word-left
     1 :ctrl-a 2 :ctrl-b 3 :ctrl-c 4 :ctrl-d 5 :ctrl-e 6 :ctrl-f
     9 :tab 10 :enter 11 :ctrl-k 12 :ctrl-l 13 :enter
-    14 :ctrl-n 16 :ctrl-p 21 :ctrl-u 23 :ctrl-w 127 :backspace})
+    8 :backspace 14 :ctrl-n 16 :ctrl-p 21 :ctrl-u 23 :ctrl-w 127 :backspace})
 
 (defn rb/line-key
   "宿主键码（整数）→ 关键字；可打印码位仍是整数（≥ 32）。"
@@ -177,7 +177,12 @@
   nil)
 
 (defn rb/line-delete!
-  "删除 [from, to)；返回删掉的码位。"
+  "删除 [from, to)；返回删掉的码位。
+
+  光标跟着走：**只**回退「删掉的码位里本来在光标左边的那些」（D-68）。
+  少了这一步，退格删掉光标左边的字后光标不动，看上去就成了「光标停在原地、
+  文字从它底下往左缩」——用起来和 Delete（删光标右边）几乎分辨不出来，
+  而且连按退格会一个个吃掉光标已经越过的字。"
   [st from to]
   (def cps (st :cps))
   (def a (max 0 (min from (length cps))))
@@ -186,9 +191,13 @@
     @[]
     (do
       (rb/line-undo! st)
+      (def cur (st :cur))
       (def cut (array/slice cps a b))
       (repeat (- b a) (array/remove cps a))
-      (put st :cur (min (st :cur) (length cps)))
+      # 落在光标左侧的删除量：删 [cur, …)（Delete/C-k）时为 0，光标不动；
+      # 删 [.., cur)（退格/C-u/C-w）时为全部，光标左移同样的距离。
+      (def left (max 0 (- (min cur b) a)))
+      (put st :cur (max 0 (min (- cur left) (length cps))))
       cut)))
 
 # ---- 历史 -----------------------------------------------------------------

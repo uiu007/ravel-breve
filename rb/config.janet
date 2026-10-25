@@ -1,6 +1,6 @@
 # rb/config.janet —— 工作区级 provider 配置（D-54）
 #
-# 为什么放在**工作区**里：provider / 模型 / 端点 / 上限 / 温度这些原来是
+# 为什么放在**工作区**里：provider / 模型 / 端点 / 上限 / 温度 / 自定义请求头这些原来是
 # 环境变量（`RB_LLM`、`RB_MODEL`……），只能在进程启动前定死。放进工作区后：
 #   - **运行中可换**：`llm-set` 之后，下一次 `send` 就用新配置（无需重启）；
 #   - **可预置**：脚本开头几行、或载入的工作区里就带着配置；
@@ -16,7 +16,7 @@
 
 (def rb/config-keys
   "允许的配置项（字符串键）。列白名单是为了让拼错立刻报错，而不是静默无效。"
-  @["provider" "model" "endpoint" "max-tokens" "temperature"])
+  @["provider" "model" "endpoint" "max-tokens" "temperature" "headers"])
 
 (defn rb/config
   "当前工作区的 provider 配置表（**活表**：`at` 读、`llm-set` 写）。"

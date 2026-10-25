@@ -17,13 +17,14 @@
   (string "rb-" s))
 
 (defn cap/oc-headers
+  "内置头 + 自定义头（D-65：自定义可覆盖同名项，例如换 User-Agent）。"
   [key opts]
-  @{"Authorization" (string "Bearer " key)
-    "Content-Type" "application/json"
-    "Accept" "text/event-stream"
-    # HTTP 头是单行 token：不能带空格/非 ASCII（所以不用 version-string）
-    "User-Agent" (string "ravel-breve/" rb/version)
-    "x-opencode-session" (cap/oc-session opts)})
+  (cap/merge-headers @{"Authorization" (string "Bearer " key)
+                       "Content-Type" "application/json"
+                       "Accept" "text/event-stream"
+                       # HTTP 头是单行 token：不能带空格/非 ASCII（所以不用 version-string）
+                       "User-Agent" (string "ravel-breve/" rb/version)
+                       "x-opencode-session" (cap/oc-session opts)}))
 
 (defn cap/oc-body
   [messages opts]

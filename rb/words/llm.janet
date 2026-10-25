@@ -3,6 +3,8 @@
 #   llm             -- Table           当前工作区的配置（活表）
 #   llm-get  Key    -- Value           取**生效值**（配置 > 环境变量 > 缺省）
 #   llm-set  Value Key --              写一项；Value 为 nil = 删除（回落）
+#   llm-models      -- Seq             拉一次当前 provider 的可用模型名（D-66）
+#   llm-auto        -- String          拉模型列表 → 按偏好选一个 → 写回 `model`（D-66）
 #   usage           -- Table           本次会话累计的用量（P2：prompt / completion / total / calls）
 #
 # 书写序：`llm-set "nvidia" "provider"` → 镜像后压 `"provider"`、再压 `"nvidia"`，
@@ -25,6 +27,26 @@
   "Key -- Value；取生效值（工作区配置 > 环境变量 > 内置缺省）。"
   []
   (rb/push (rb/config-get (rb/pop))))
+
+(defn rb/llm-models
+  " -- Seq；当前 provider 的模型名列表（每次调用都真的请求一次：列表会变）。"
+  []
+  (def f (rb/cap-get :llm/models))
+  (when (nil? f)
+    (rb/raise (rb/exit-table :orchestration-base)
+              "能力层未提供 :llm/models（REQ-37：核心不含网络实现）"))
+  (rb/push (f)))
+
+(defn rb/llm-auto
+  " -- String；按偏好自动选模型并写进工作区配置，压回选中的名字。
+   偏好顺序：`RB_MODEL_PREFER`（逗号分隔）> provider 内置偏好 > 列表第一个。
+   当前 `model` 已经在列表里时保留它（不做惊喜变更）。"
+  []
+  (def f (rb/cap-get :llm/auto))
+  (when (nil? f)
+    (rb/raise (rb/exit-table :orchestration-base)
+              "能力层未提供 :llm/auto（REQ-37：核心不含网络实现）"))
+  (rb/push (f)))
 
 (defn rb/usage
   " -- Table；工作区累计用量。字段与 provider 一致：prompt-tokens / completion-tokens /

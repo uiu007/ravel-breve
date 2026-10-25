@@ -52,7 +52,7 @@ check_nonempty() { # check_nonempty <说明>
 }
 
 export RB_LLM=opencode
-export RB_MODEL="${RB_MODEL:-glm-5.3-flash}"
+export RB_MODEL="${RB_MODEL:-deepseek-v4.1-flash}"
 
 echo "== 真 provider 端到端（$RB_MODEL）=="
 
@@ -127,6 +127,39 @@ check "真机：会话里留下 role=tool 的消息（REQ-48 ③）" "yes" \
 # 真模型偶发返回空 content，这里只提示、不计入失败。
 grep -q '\\\"role\\\":\\\"assistant\\\"' /tmp/rb-agent-out \
   || printf '  · 提示：真模型本轮未给出工具后的文本（空 content），不影响工具链路\n'
+
+# ⑦ 模型列表与自动配置（REQ-59）：真请求 /models，且能写回 model
+check_rc "真机：llm-models" 0 bash -c "$RAVEL -e 'llm-models
+len
+show
+llm-models
+show' > /tmp/rb-oc-models 2>&1"
+check "真机：列表非空（>= 1）" "yes" \
+      "$(grep -Eq '^[1-9][0-9]*$' /tmp/rb-oc-models && echo yes || echo no)"
+check "真机：列表里含当前模型" "yes" \
+      "$(grep -qxF "\"$RB_MODEL\"" /tmp/rb-oc-models && echo yes || echo no)"
+check_rc "真机：llm-auto 写回 model" 0 bash -c "$RAVEL -e 'llm-auto
+show
+llm-get \"model\"
+show' > /tmp/rb-oc-auto 2>&1"
+check "真机：llm-auto 与 llm-get 一致（已写回）" "yes" \
+      "$([ "$(sed -n 1p /tmp/rb-oc-auto)" = "$(sed -n 2p /tmp/rb-oc-auto)" ] && echo yes || echo no)"
+
+# ⑧ 自定义请求头（REQ-58）：能换内置头（请求照样通），也能覆盖 Authorization（于是被拒）
+check_rc "真机：自定义 User-Agent 覆盖后仍能对话" 0 bash -c "$RAVEL -e 'llm-set H{ \"User-Agent\" \"my-agent/1\" } \"headers\"
+agent \"c\" { }
+send say \"只回答一个字：好\"
+drain'"
+check_nonempty "真机：覆盖 User-Agent 后仍有正文"
+check_rc "真机：自定义会话头对拉模型列表也生效" 0 bash -c "$RAVEL -e 'llm-set H{ \"x-opencode-session\" \"rb-custom\" } \"headers\"
+llm-models
+len
+show' > /tmp/rb-oc-hdr2 2>&1"
+check "真机：列表仍非空" "yes" \
+      "$(grep -Eq '^[1-9][0-9]*$' /tmp/rb-oc-hdr2 && echo yes || echo no)"
+check_rc "真机：自定义 Authorization 真的进了请求（坏密钥 → 60）" 60 bash -c "$RAVEL -e 'llm-set H{ \"Authorization\" \"Bearer nope\" } \"headers\"
+llm-models
+pop' > /tmp/rb-oc-badauth 2>&1"
 
 
 echo "端到端（真 provider）：通过 $pass，失败 $fail"

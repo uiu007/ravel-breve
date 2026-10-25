@@ -39,10 +39,11 @@
          :tools (when (and (opts :tools) (> (length (opts :tools)) 0)) (opts :tools))}))
 
 (defn cap/nv-headers
+  "内置头 + 自定义头（D-65：自定义可覆盖同名项）。"
   [key]
-  @{"Authorization" (string "Bearer " key)
-    "Content-Type" "application/json"
-    "Accept" "text/event-stream"})
+  (cap/merge-headers @{"Authorization" (string "Bearer " key)
+                       "Content-Type" "application/json"
+                       "Accept" "text/event-stream"}))
 
 (defn cap/nv-chat
   "messages opts → 取块函数"

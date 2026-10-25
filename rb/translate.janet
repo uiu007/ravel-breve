@@ -126,6 +126,8 @@
     "llm" "rb/llm"
     "llm-set" "rb/llm-set"
     "llm-get" "rb/llm-get"
+    "llm-models" "rb/llm-models"
+    "llm-auto" "rb/llm-auto"
     "usage" "rb/usage"
     # L8 钩子与流（M3）
     "@on" "rb/hook-on"

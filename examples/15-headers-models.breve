@@ -1,0 +1,36 @@
+# examples/15-headers-models.breve —— 自定义请求头（D-65）与模型列表（D-66）
+#
+# 两个能力都是**配置/查询**，不改变语言：
+#   headers      配置项（也可用 RB_HEADERS），provider 建头时合并，同名覆盖内置
+#   llm-models   真请求一次 <基址>/models，压回模型名数组
+#   llm-auto     拉列表 → 按偏好选一个 → 写回 model → 压回名字
+#
+# 本文件在 `make test-examples` 里用 RB_LLM=mock 跑：mock 的模型列表就是 @["mock"]，
+# 所以下面不联网也能演示完整流程（真 provider 的写法一字不差）。
+
+# 写一项配置：值在最左（= 第一个操作数 = 栈顶），键在右
+llm-set H{ "X-Trace" "demo-1" "User-Agent" "my-agent/1" } "headers"
+
+# 整张 headers 读出来（生效值：工作区 > 环境变量 > 空）
+llm-get "headers"
+show                                  # → @{"User-Agent" "my-agent/1" "X-Trace" "demo-1"}
+
+# 取单项：上一行把表留在栈上，`at` 的 Key 在本行压入 → 先被消费
+llm-get "headers"
+at "X-Trace"
+show                                  # → "demo-1"
+
+# 模型列表：每次调用都真的请求一次（列表会变，所以不缓存）
+llm-models
+show                                  # mock → @["mock"]
+
+# 自动配置：拉列表 → 当前模型在列表里就保留，否则按偏好选 → 写回 model
+llm-auto
+show                                  # → "mock"
+llm-get "model"
+show                                  # 工作区里已经是选中的那个
+
+# 删除一项 = 回落到环境变量 / 内置缺省
+llm-set nil "headers"
+llm-get "headers"
+show                                  # → @{}

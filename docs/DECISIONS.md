@@ -791,5 +791,64 @@ D-56（非 SSE 一律 60）与 REQ-55（用量立刻记账）这类**已经踩�
   请求头（Bearer、`ravel-breve/` 前缀、`x-opencode-session` 两次同值、`stream:true`、
   `include_usage`）；SSE 里 `reasoning_content` 不进正文而 `usage` 照收。
 - `tests/e2e/opencode.sh`（真 provider，`make test-oc`，无密钥跳过）：一轮对话、
-  `drain`、逐块、广播、坏密钥 60、坏模型 60、用量记账、工具调用留下 `role=tool`。15 项全过。
+  `drain`、逐块、广播、坏密钥 60、坏模型 60、用量记账、工具调用留下 `role=tool`、
+  模型列表与自动配置、自定义头（换 `User-Agent` 仍能对话、覆盖 `Authorization` → 60）。
+  v1.0i 后共 **25 项全过**。
 - 回归：`cap/nvidia.janet` 改为调用 `cap/oai-pull`，`make test` 全绿（369 + 103 + 14 + core-only）。
+
+## D-65 自定义请求头（v1.0i 的 REQ-58）
+
+**内容。** 工作区配置多一项 `headers`（`Table` 或字符串）；环境变量 `RB_HEADERS`
+接受两种形状（JSON 对象 / `K:v,K2:v2`）。`cap/headers` 归一成 `@{"Name" "value"}`
+（名字与值都 `string`，nil 值丢弃），`cap/merge-headers` 把它**合并**到 provider
+构造好的内置头上，**同名项自定义覆盖内置**（所以 `User-Agent`、`Accept` 都能换）。
+优先级照 D-54：工作区 > 环境变量 > 空。
+
+**理由。**
+
+- 换网关（代理、企业网关、自建反代）时最常改的就是头：`X-Trace`、组织号、
+  `User-Agent` 明明不是 provider 的事，却只能改代码 = 每换一次网关发一次版。
+- 归一放在**能力层**，核心只存不解析（`rb/config.janet` 只多一个白名单项）——
+  方言仍然不认识 HTTP。
+- 覆盖顺序选「自定义赢」而不是「内置赢」：内置头是**缺省值**，用户显式给的就是意图。
+  风险（把 `Authorization` 写坏）由 `Secrets` 规则挡住：`Authorization` 该由 provider
+  从密钥生成，用户覆盖它只会让自己 60，不会造成别的破坏。
+
+**不做。** 自动重试请求头、按 host 分头、把密钥塞进 `headers`（那会随快照落盘，
+违反 REQ-20/D-54）。`headers` 里放 `Authorization` 是**允许但不明智**：文档里明说别这么干。
+
+**验收。** `tests/unit/llm-models.janet`：环境变量两种形状；工作区覆盖环境变量；
+覆盖同名内置头（`User-Agent`）；`llm-set`/`llm-get` 往返与删除回落。
+
+---
+
+## D-66 模型列表与自动配置（v1.0i 的 REQ-59）
+
+**内容。** 新增能力 `:http/get-body`（`url, headers → 响应体 String`，非 2xx / curl 失败 = 60）
+与 `:llm/models`、`:llm/auto`；方言多两个 0 元词 `llm-models`（`-- Seq`）与
+`llm-auto`（`-- String`）。`cap/llm-auto` 的顺序：
+
+1. 拉列表（`GET <基址>/models`；基址 = 生效端点去掉 `/chat/completions`）；
+2. **工作区里显式设过** `model` 且它还在列表里 → **保留**（内置缺省不算显式，
+   否则 `RB_MODEL_PREFER` 永远轮不到——缺省模型几乎总在列表里）；
+3. 否则按 `RB_MODEL_PREFER`（逗号分隔）> provider 内置偏好 > 列表第一条；
+4. 选中者写回工作区 `model`（`rb/config-set`），返回名字。
+
+`model = "auto"` 时，`cap/llm-chat` **每次**请求前调用一次 `cap/llm-auto`。
+
+**理由。**
+
+- 模型名易变（一天就能多出几个），把名字焊在常量或环境变量里迟早过期；
+  "列表 → 偏好 → 选一个"是唯一不猜的表达方式。
+- **保留当前模型**这条是为了不制造惊喜：用户显式设过的模型，不该因为它在偏好表里
+  排名靠后就被悄悄换掉。
+- 自动配置**写回工作区**而不是塞进程环境：这样它能进 `dump`、进快照（REQ-20），
+  可审计——与 D-54 的取向一致。
+- `mock` 分支不联网，保证 `make test` 仍然 hermetic。
+
+**不做。** 不缓存列表（缓存 = 隐藏状态）；不按价格 / 上下文长度 / 延迟自动选
+（那是策略，属钩子层 REQ-50 的地盘）；不加"列表里挑工具调用能力最强"的启发式。
+
+**验收。** `tests/unit/llm-models.janet`：URL（含 `/models` 拼接）、请求头（Bearer +
+自定义头 + `x-opencode-session`）、`data[].id` 解析、偏好命中、保留已有模型、
+写回工作区、mock 不联网。真 provider：`make test-oc`（默认模型已是 `deepseek-v4.1-flash`）。

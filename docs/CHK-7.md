@@ -1,6 +1,6 @@
 # CHK-7 人工检查点：前端键位 + 待裁决项统一处置
 
-依据规格：`ravel-breve-spec-v1.0h.md`（现行；v1.0b…v1.0g 保留为历史原文）。
+依据规格：`ravel-breve-spec-v1.0i.md`（现行；v1.0b…v1.0h 保留为历史原文）。
 本轮主题：**REPL 行编辑器（Emacs / Vim 双模式）**，以及此前遗留的规格留白 / 缺陷。
 
 ## 1. 交付
@@ -41,6 +41,8 @@
 ```
 $ make test        → 326 单元/符合性 + 94 端到端 + 11 例程 + core-only 全绿
 # v1.0f（REQ-52）后：346 单元/符合性 + 94 端到端 + 12 例程 + core-only 全绿
+# v1.0g（REQ-53/54）后：365 单元/符合性 + 103 端到端 + 14 例程 + core-only 全绿
+# v1.0i（REQ-58/59）后：378 单元/符合性 + 103 端到端 + 15 例程 + core-only 全绿
 $ make test-agent  → 真 NVIDIA 14/0（不进 make test）
 ```
 

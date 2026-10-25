@@ -62,7 +62,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0h · janet 1.42.1
+ravel breve 1.0i · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -173,7 +173,7 @@ show
 usage
 show'
 "opencode"
-"glm-5.3-flash"
+"deepseek-v4.1-flash"
 "收到"
 @{"calls" 1 "completion-tokens" 3 "prompt-tokens" 310 "total-tokens" 313}
 ```
@@ -183,7 +183,7 @@ show'
 | 差别 | 做法 |
 |---|---|
 | 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
-| 必须自称客户端 | `User-Agent: ravel-breve/1.0h`（**不许**用通用 SDK 名）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0i`（**不许**用通用 SDK 名）|
 | 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
 
 另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
@@ -205,10 +205,11 @@ $ make test-agent     # NVIDIA
 | 配置项 | 环境变量（次优先） | 内置缺省 | 说明 |
 |---|---|---|---|
 | `provider` | `RB_LLM` | `auto` | `nvidia` / `opencode` / `mock` / `auto`（`auto` = 有谁家的密钥就用谁，都没有则 `mock`） |
-| `model` | `RB_MODEL` | 按 provider：NVIDIA `meta/llama-3.2-11b-vision-instruct`，OpenCode `glm-5.3-flash` | 真 provider 的模型名 |
+| `model` | `RB_MODEL` | 按 provider：NVIDIA `meta/llama-3.2-11b-vision-instruct`，OpenCode `deepseek-v4.1-flash` | 真 provider 的模型名 |
 | `endpoint` | `RB_ENDPOINT` | 按 provider 的官方端点 | 兼容 OpenAI 形状的服务也能接；OpenCode 另可用 `RB_OC_BASE` 换基址 |
 | `max-tokens` | `RB_MAX_TOKENS` | `512` | 本轮回复上限 |
 | `temperature` | `RB_TEMPERATURE` | `0.2` | 采样温度 |
+| `headers` | `RB_HEADERS` | `@{}` | 自定义请求头（`Table` 或 `K:v,…` / JSON；**覆盖同名内置头**，见 §14.9）|
 
 **优先级：工作区配置 > 环境变量 > 内置缺省**（`llm-get` 显示的就是生效值）。
 
@@ -1443,6 +1444,81 @@ show
 - 截止时间：`RB_STREAM_DEADLINE_MS=5000` 给每条流 5 秒。超时 = 流失败 + 退出码 `60`
   （编排级），不是「空回复 + 0」。
 
+### 14.9 自定义请求头：`headers`
+
+有些网关不认默认的请求头：要 `X-Trace`、要组织号、要一个自家客户端的
+`User-Agent`。这些**不是 provider 的事**，所以放进配置（D-65）：
+
+```
+llm-set H{ "X-Trace" "abc-123" "User-Agent" "my-agent/1" } "headers"
+agent "c" { }
+send say "只回答两个字：收到"
+drain
+show
+```
+
+规则四条：
+
+1. **两种写法都行**：工作区配置给表（如上），或环境变量 `RB_HEADERS` 给
+   `X-Trace:abc-123,User-Agent:my-agent/1`（也可给 JSON 对象）。
+2. **同名覆盖内置**：`User-Agent`、`Accept` 都能换；没覆盖的项（`Authorization`、
+   `Content-Type`）照旧由 provider 生成。所以**别**把 `Authorization` 往 `headers` 里塞——
+   密钥不属于配置（会随快照落盘，见 §1.2.3 与 D-54）。
+3. **对拉模型列表也生效**（§14.10）——网关连 `/models` 都要关门时这一点很要紧。
+4. 优先级照旧：**工作区配置 > 环境变量 > 空**；写 `nil` = 删掉该项。
+
+坏输入（JSON 不是对象、既不是表也不是字符串）报 **31**：这是配置写错了，
+不是编排失败。
+
+### 14.10 模型列表与自动配置：`llm-models` / `llm-auto`
+
+模型名是最易变的东西。与其把名字焊在环境变量里，不如**问一次**：
+
+```
+llm-models
+len
+show
+llm-auto
+show
+llm-get "model"
+show
+```
+
+- `llm-models`：`-- Seq`。真的请求一次 `GET <基址>/models`（基址 = 端点去掉
+  `/chat/completions`），压回模型名数组。**不缓存**：列表会变，缓存就是隐藏状态。
+- `llm-auto`：`-- String`。拉列表 → 挑一个 → **写回工作区 `model`** → 压回名字。
+  挑选顺序：**工作区里显式设过的 `model`（还在列表里就保留）** > `RB_MODEL_PREFER`
+  （逗号分隔）> provider 内置偏好 > 列表第一条。内置**缺省**不算「显式设过」——
+  否则偏好表永远轮不到它。
+- 想让每轮都重新解析：`llm-set "auto" "model"`——`model` 是 `"auto"` 时，
+  每次请求前解析一次（结果落回工作区，`dump` 看得见）。
+
+真 provider 上的样子（OpenCode，38 个模型）：
+
+```
+$ RB_LLM=opencode ./bin/ravel -e 'llm-models
+len
+show
+llm-auto
+show
+llm-get "model"
+show'
+38
+"deepseek-v4.1-flash"
+"deepseek-v4.1-flash"
+```
+
+换一个偏好：
+
+```
+$ RB_LLM=opencode RB_MODEL_PREFER=kimi-k3,qwen3.8-max ./bin/ravel -e 'llm-auto
+show'
+"kimi-k3"
+```
+
+`mock` provider 不联网：列表就是 `@["mock"]`，`llm-auto` 得 `"mock"`。
+所以例程与测试仍然 hermetic（见 `examples/15-headers-models.breve`）。
+
 ## 15. 前端协议（`--serve`）
 
 一行一条 JSON。裸文本行 = `eval` 的简写；显式请求：
@@ -1462,7 +1538,7 @@ show
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0h · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0i · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -1567,11 +1643,11 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 | L7 持久化 / 工作区 | `read` `write` `current` `save` `load` `compact` `usage` |
 | L8 钩子 / 工具 | `@on` `@off` `deftool` `invoke` `resend` `stop` `cancel` `drain` `next` |
 | L9 前端 | `watch` `subscribe` `unsubscribe` |
-| provider 配置 | `llm` `llm-get` `llm-set` |
+| provider 配置 | `llm` `llm-get` `llm-set` `llm-models` `llm-auto` |
 
-完整栈效应见 `ravel-breve-spec-v1.0h.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
+完整栈效应见 `ravel-breve-spec-v1.0i.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
 （v1.0e 已把 SF-14…SF-35 冻结；v1.0f 加 REQ-52 处理流程层；v1.0g 加沙箱与默认工具；
-v1.0h 加用量 / 取消 / 截止时间）。
+v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型列表）。
 
 ---
 
@@ -1593,6 +1669,7 @@ v1.0h 加用量 / 取消 / 截止时间）。
 | `examples/12-ptc.breve` | PTC 模式：`mode`、只有 `eval` 工具、程序内串工具 |
 | `examples/13-tools.breve` | 默认工具包：`glob` / `grep` / `edit`（`shell` 默认关）|
 | `examples/14-usage-cancel.breve` | 用量记账（`usage`）与取消（`stop` / `cancel`）|
+| `examples/15-headers-models.breve` | 自定义请求头（`headers`）、模型列表（`llm-models`）与自动配置（`llm-auto`）|
 | `examples/run-all.sh` | 一次跑完上面全部 |
 
 ```

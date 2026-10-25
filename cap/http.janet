@@ -71,3 +71,47 @@
       (string/trimr line))))
 
 (rb/cap-put :http/post-lines cap/http-post-lines)
+
+# ---- 一次性 GET（D-65：拉模型列表这类「小 JSON」用）------------------------
+#
+# 与 :http/post-lines 同一套 curl 子进程，但输出直接落到临时文件：
+# 这类响应是一次性的（不是流），没有必要为它开命名管道。
+
+(defn cap/http-get-body
+  "url headers → 响应体（String）。非 2xx 或 curl 失败报 60。"
+  [url headers]
+  (def outfile (cap/http-tmp ".get"))
+  (def errfile (cap/http-tmp ".err"))
+  (def argv @["curl" "-sS" "-X" "GET" url
+              "--max-time" (or (os/getenv "RB_HTTP_TIMEOUT") "180")
+              "--connect-timeout" "20"
+              "-w" "\n%{http_code}"])
+  (each [k v] (pairs headers)
+    (array/push argv "-H")
+    (array/push argv (string k ": " v)))
+  (def fo (file/open outfile :w))
+  (def fe (file/open errfile :w))
+  (def proc (os/spawn argv :p {:out fo :err fe}))
+  (def code (os/proc-wait proc))
+  (file/close fo)
+  (file/close fe)
+  (def raw (or (get (protect (slurp outfile)) 1) ""))
+  (def err (or (get (protect (slurp errfile)) 1) ""))
+  (os/execute ["rm" "-f" outfile errfile] :p)
+  (def body (string raw))
+  # 末尾那行是 curl 写的 HTTP 状态码
+  (var status 0)
+  (var cut (length body))
+  (when-let [nl (string/find "\n" body)]
+    (protect (do (set status (or (scan-number (string/trim (string/slice body (inc nl)))) 0))
+                 (set cut nl))))
+  (when (and (not= code 0) (string? err) (not (empty? (string/trimr err))))
+    (rb/raise (rb/exit-table :orchestration-base)
+              (string "HTTP GET 失败（curl " code "）：" (string/trimr err))))
+  (when (or (< status 200) (>= status 300))
+    (rb/raise (rb/exit-table :orchestration-base)
+              (string "HTTP GET 失败：HTTP " status
+                      (if (> (length body) 200) (string "：" (string/slice body 0 200)) ""))))
+  (string/slice body 0 cut))
+
+(rb/cap-put :http/get-body cap/http-get-body)

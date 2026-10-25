@@ -42,7 +42,7 @@
     (is= "opencode" (eval-top-in env "llm-get \"provider\""))
     (is= cap/oc-model-default (eval-top-in env "llm-get \"model\"")
          "没设 model 就按 provider 给缺省")
-    (is= "glm-5.3-flash" cap/oc-model-default)
+    (is= "deepseek-v4.1-flash" cap/oc-model-default)
     (is (string/find "opencode.ai" (eval-top-in env "llm-get \"endpoint\"")))
     (is= 0 (run-in-exit env "llm-set \"glm-5.3\" \"model\""))
     (is= "glm-5.3" (eval-top-in env "llm-get \"model\""))))
@@ -58,8 +58,8 @@
     (oc-with-post fake
       (fn []
         (def f (rb/cap-get :llm/opencode))
-        (f @[@{:role "user" :content "hi"}] @{:model "glm-5.3-flash" :session "c"})
-        (f @[@{:role "user" :content "hi"}] @{:model "glm-5.3-flash" :session "c"})))
+        (f @[@{:role "user" :content "hi"}] @{:model "deepseek-v4.1-flash" :session "c"})
+        (f @[@{:role "user" :content "hi"}] @{:model "deepseek-v4.1-flash" :session "c"})))
     (os/setenv "OPENCODE_API_KEY" oldkey)
     (is= 2 (length seen))
     (def h (seen 0))
@@ -94,7 +94,7 @@
                (fn []
                  (def f (rb/cap-get :llm/opencode))
                  (def it (f @[@{:role "user" :content "hi"}]
-                            @{:model "glm-5.3-flash" :session "c"}))
+                            @{:model "deepseek-v4.1-flash" :session "c"}))
                  (var text "")
                  (var u nil)
                  (var go true)

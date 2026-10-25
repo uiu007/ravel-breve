@@ -3,6 +3,7 @@
 # 取值优先级（D-54）：**工作区配置 > 环境变量 > 内置缺省**
 #   工作区配置：方言里 `llm-set`（`llm` 看全表、`llm-get` 看生效值）
 #   环境变量：  RB_LLM、RB_MODEL、RB_ENDPOINT、RB_MAX_TOKENS、RB_TEMPERATURE
+#               RB_HEADERS、RB_MODEL_PREFER
 #               （OpenCode 另有 RB_OC_BASE / RB_OC_SESSION / OPENCODE_API_KEY）
 #   密钥**只**从这里来（不入库、不进工作区、不进快照）：
 #     NVIDIA_API_KEY，或 secrets/nvidia.key / .nvidia.key / ~/.config/ravel/nvidia.key
@@ -10,7 +11,7 @@
 (def cap/nv-default-model "meta/llama-3.2-11b-vision-instruct")
 (def cap/nv-endpoint "https://integrate.api.nvidia.com/v1/chat/completions")
 # D-64：OpenCode Go 的缺省模型 / 基址 / 端点（`llm-set` 可换）
-(def cap/oc-model-default "glm-5.3-flash")
+(def cap/oc-model-default "deepseek-v4.1-flash")
 (def cap/oc-base-default "https://opencode.ai/zen/go/v1")
 
 (defn cap/read-first-line
@@ -89,6 +90,80 @@
     (string? v) (or (scan-number (string/trim v)) default)
     default))
 
+# ---- 自定义请求头（D-65）------------------------------------------------
+#
+# 工作区配置 `headers`（`llm-set H{ "X-Foo" "bar" } "headers"`）或环境变量
+# `RB_HEADERS`（JSON 对象，或 `X-Foo:bar,X-Baz:qux`）。两种来源都归一成
+# `@{"Name" "value"}`，由 provider 的头构造**合并**（自定义可覆盖内置项）。
+
+(def cap/headers-env-raw nil)  # 测试用的注入口（见 tests/unit/llm-models.janet）
+
+(defn cap/headers-raw
+  []
+  (def v (get (rb/config) "headers"))
+  (cond
+    (not (nil? v)) v
+    (not (nil? cap/headers-env-raw)) cap/headers-env-raw
+    (os/getenv "RB_HEADERS") (os/getenv "RB_HEADERS")
+    @{}))
+
+(defn cap/headers-parse-env
+  "`K:v,K2:v2` → 表；空串 → 空表。"
+  [s]
+  (def out @{})
+  (each part (string/split "," s)
+    (def t (string/trim part))
+    (when (not (empty? t))
+      (def i (string/find ":" t))
+      (when i
+        (def k (string/trim (string/slice t 0 i)))
+        (def v (string/trim (string/slice t (inc i))))
+        (when (not (empty? k)) (put out k v)))))
+  out)
+
+(defn cap/headers
+  "生效的自定义请求头（String → String）。坏输入报 31（配置不是方言程序）。"
+  []
+  (def raw (cap/headers-raw))
+  (def tbl
+    (cond
+      (dictionary? raw) raw
+      (nil? raw) @{}
+      (string? raw)
+      (do
+        (def t (string/trim raw))
+        (cond
+          (empty? t) @{}
+          (string/has-prefix? "{" t)
+          (do
+            (def dec (rb/cap-get :json/decode))
+            (when (nil? dec)
+              (rb/raise (rb/exit-table :orchestration-base)
+                        "能力层未提供 JSON 解码（cap/json）"))
+            (def j (protect (dec t)))
+            (if (get j 0)
+              (if (dictionary? (get j 1))
+                (get j 1)
+                (rb/raise (rb/exit-table :runtime-type)
+                          "RB_HEADERS 的 JSON 必须是对象"))
+              (rb/raise (rb/exit-table :runtime-type)
+                        (string "RB_HEADERS 不是合法 JSON：" (rb/error-msg (get j 1))))))
+          (cap/headers-parse-env t)))
+      (rb/raise (rb/exit-table :runtime-type)
+                (string "headers 必须是表或字符串，得到 " (type raw)))))
+  (def out @{})
+  (eachp [k v] tbl
+    (when (not (nil? v))
+      (put out (string k) (string v))))
+  out)
+
+(defn cap/merge-headers
+  "内置头 + 自定义头（自定义覆盖同名项）。"
+  [base]
+  (def out (table/clone base))
+  (eachp [k v] (cap/headers) (put out k v))
+  out)
+
 (defn cap/llm-provider
   "provider：nvidia / opencode / mock / auto（缺省）。工作区配置优先，其次 RB_LLM。
    `auto` 时按密钥可用性选：nvidia > opencode > mock（D-64）。"
@@ -105,6 +180,24 @@
     (rb/raise (rb/exit-table :runtime-type)
               (string "provider 只能是 nvidia / opencode / mock / auto，得到 " want))))
 
+(def cap/model-prefer-default
+  @{"opencode" @["deepseek-v4.1-flash" "glm-5.3-flash" "kimi-k3" "qwen3.8-plus" "qwen3.8-flash"]
+    "nvidia" @["meta/llama-3.2-11b-vision-instruct"]
+    "mock" @["mock"]})
+
+(defn cap/model-prefer
+  "自动选模型的偏好顺序：`RB_MODEL_PREFER`（逗号分隔）> provider 内置偏好。"
+  []
+  (def env (os/getenv "RB_MODEL_PREFER"))
+  (if (and env (not (empty? (string/trim env))))
+    (do
+      (def out @[])
+      (each p (string/split "," env)
+        (def t (string/trim p))
+        (when (not (empty? t)) (array/push out t)))
+      out)
+    (or (get cap/model-prefer-default (cap/llm-provider)) @[])))
+
 (defn cap/llm-model
   "生效模型：显式配置 > 环境变量 > 按 provider 的缺省（D-64）。"
   []
@@ -120,6 +213,15 @@
                   (cap/oc-url)
                   cap/nv-endpoint))
   (string (cap/cfg "endpoint" "RB_ENDPOINT" fallback)))
+
+(defn cap/llm-base-url
+  "生效端点的**基址**（去掉 `/chat/completions`）：模型列表要拼 `/models`。"
+  []
+  (def e (string (cap/llm-endpoint)))
+  (def suffix "/chat/completions")
+  (if (string/has-suffix? suffix e)
+    (string/slice e 0 (- (length e) (length suffix)))
+    e))
 
 (defn cap/llm-max-tokens
   []
@@ -138,5 +240,6 @@
          "endpoint" (cap/llm-endpoint)
          "max-tokens" (cap/llm-max-tokens)
          "temperature" (cap/llm-temperature)
+         "headers" (cap/headers)
          (get (rb/config) k))))
 

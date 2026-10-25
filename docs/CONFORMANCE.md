@@ -1,6 +1,6 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0h.md`**（用量 / 取消 / 截止时间）；
+依据规格：**`ravel-breve-spec-v1.0i.md`**（请求头 / 模型列表）；
 `ravel-breve-spec-v1.0c.md` / `ravel-breve-spec-v1.0b.md` 为历史原文。
 状态：**M6**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
@@ -8,7 +8,8 @@
 > v1.0d 新增 **REQ-47…REQ-51**（见文末）；**v1.0e 不新增 REQ**（只把 SF-14…SF-35 冻结，见其附录 I）；
 > **v1.0f 新增 REQ-52**（处理流程 / 模式，见其 §4.13 与附录 J）；
 > **v1.0g 新增 REQ-53 / REQ-54**（文件沙箱、默认工具包，见其 §4.14 与附录 L）；
-> **v1.0h 新增 REQ-55 / REQ-56 / REQ-57**（用量记账、取消与传播、流截止时间，见其 §4.15 与附录 M）。
+> **v1.0h 新增 REQ-55 / REQ-56 / REQ-57**（用量记账、取消与传播、流截止时间，见其 §4.15 与附录 M）；
+> **v1.0i 新增 REQ-58 / REQ-59**（自定义请求头、模型列表与自动配置，见其 §4.16 与附录 N）。
 
 跑法：`make test`（单元 + 符合性 + 端到端 + 附录 D）。
 
@@ -293,3 +294,12 @@ D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
 | REQ-57 | 流截止时间：`RB_STREAM_DEADLINE_MS`，超时 → 流失败 + 60 | ✅ | `unit/cancel.janet` |
 
 决策记录：D-62（用量记账）· D-63（取消与截止时间）。
+
+## v1.0i 新增 REQ（58–59）
+
+| REQ | 内容 | 状态 | 测试 |
+|---|---|---|---|
+| REQ-58 | 自定义请求头：配置项 `headers` + `RB_HEADERS`（JSON 对象或 `K:v,…`），归一后**覆盖同名内置头**，对拉模型列表同样生效；坏输入 31 | ✅ | `unit/llm-models.janet`（三条）、`e2e/opencode.sh`（自定义头进真请求）|
+| REQ-59 | 模型列表与自动配置：`llm-models` 真请求 `<基址>/models`；`llm-auto` 按 `RB_MODEL_PREFER` > provider 偏好 > 首个选并**写回** `model`；`model = "auto"` 每次解析；mock 不联网 | ✅ | `unit/llm-models.janet`（四条）|
+
+决策记录：D-65（自定义请求头）· D-66（模型列表与自动配置）。

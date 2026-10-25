@@ -70,6 +70,7 @@
     :flags (table/clone rb/flag-defaults)   # 历史标记开关（默认全开）
     :agents @[]
     :tools @{}     # REQ-48：工具表（名字 → 描述 + 引号）
+    :plugins @{}   # REQ-60：插件台账（名字 → 装了哪些词/钩子/工具）
     :config @{}    # D-54：provider 配置（llm / llm-set / llm-get）
     :round @[]
     :round-rev 0   # 本轮列表的版本号（新建流 +1；收尾据此判断「还在变」）

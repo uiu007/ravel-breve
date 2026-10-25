@@ -7,6 +7,10 @@
 
 (var rb/after-eval-hook nil)
 
+# REQ-60：`RB_PLUGINS` 里的插件在**新工作区**建好后装载。
+# 间接层同 D-29：本文件先于 rb/plugins.janet 装载，逻辑在那边。
+(var rb/plugin-startup nil)
+
 (defn rb/new-env
   "新建一个工作区环境：自带一份数据栈（REQ-30：栈 = 工作区的变量空间）。
    工作区与它的环境互相登记（`:rb-ws` / `:env`），持久化时按对操作。"
@@ -16,6 +20,8 @@
   (def ws (rb/ws-new))
   (put ws :env env)
   (put env :rb-ws ws)
+  # 插件装载期间 `(rb/ws)` 必须指向**这个**工作区（插件往这里加词/钩子/工具）
+  (when rb/plugin-startup (with-dyns [:rb-ws ws] (rb/plugin-startup env)))
   env)
 
 (defn rb/compile-source

@@ -1,0 +1,2 @@
+# 测试用插件：插件里再 plug（应当被拒绝）
+plug "tests/fixtures/plugins/ok.breve"

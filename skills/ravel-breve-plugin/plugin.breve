@@ -1,0 +1,18 @@
+# plugin.breve —— ravel breve 插件样板（技能 `ravel-breve-plugin` 的可跑附件）
+#
+# 装的东西全在**用户层**：一个词、一个钩子、一个工具。
+# 一行一条语句；最左实参在栈顶（= 第一个操作数 = 先被消费）。
+# 这里没有任何新语法：剪开逐行手抄到 REPL，效果完全一样。
+
+# ① 词：两数相加（0 元，自己从栈上取元数）
+sum2 : "两个数相加（Sum2 -- N）" [ + ]
+
+# ② 钩子：任何流关闭时，在 flags 里留个记号（`flag "saw-close"` 可读）
+@on @Close [ flag-set true "saw-close" ]
+
+# ③ 工具：给模型用。工具体是 0 元函数，参数表已由宿主压栈，先 `at` 取字段。
+deftool "sum" "把两个整数相加" [ dup
+at "a"
+swap
+at "b"
++ ]

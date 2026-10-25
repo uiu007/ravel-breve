@@ -1,7 +1,7 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0i.md`**（请求头 / 模型列表）；
-`ravel-breve-spec-v1.0c.md` / `ravel-breve-spec-v1.0b.md` 为历史原文。
+依据规格：**`ravel-breve-spec-v1.0j.md`**（插件 ABI / skills）；
+`ravel-breve-spec-v1.0c.md` … `ravel-breve-spec-v1.0i.md` / `ravel-breve-spec-v1.0b.md` 为历史原文。
 状态：**M6**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
@@ -9,7 +9,8 @@
 > **v1.0f 新增 REQ-52**（处理流程 / 模式，见其 §4.13 与附录 J）；
 > **v1.0g 新增 REQ-53 / REQ-54**（文件沙箱、默认工具包，见其 §4.14 与附录 L）；
 > **v1.0h 新增 REQ-55 / REQ-56 / REQ-57**（用量记账、取消与传播、流截止时间，见其 §4.15 与附录 M）；
-> **v1.0i 新增 REQ-58 / REQ-59**（自定义请求头、模型列表与自动配置，见其 §4.16 与附录 N）。
+> **v1.0i 新增 REQ-58 / REQ-59**（自定义请求头、模型列表与自动配置，见其 §4.16 与附录 N）；
+> **v1.0j 新增 REQ-60 / REQ-61**（插件装载卸载、插件编写 skills 的分层，见其 §4.17 与附录 O）。
 
 跑法：`make test`（单元 + 符合性 + 端到端 + 附录 D）。
 
@@ -303,3 +304,12 @@ D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
 | REQ-59 | 模型列表与自动配置：`llm-models` 真请求 `<基址>/models`；`llm-auto` 按 `RB_MODEL_PREFER` > provider 偏好 > 首个选并**写回** `model`；`model = "auto"` 每次解析；mock 不联网 | ✅ | `unit/llm-models.janet`（四条）|
 
 决策记录：D-65（自定义请求头）· D-66（模型列表与自动配置）。
+
+## v1.0j 新增 REQ（60–61）
+
+| REQ | 内容 | 状态 | 测试 |
+|---|---|---|---|
+| REQ-60 | 插件装载与卸载：插件 = 一个 `.breve` 文件；`plug` / `plugins` / `unplug` 三词全 0 元；装载**不算一轮**、脏栈不外溢、失败**原子回滚**、卸载**精确撤销并还原**被重定义的旧词条、同名重装先卸旧账、插件内再 `plug` → 31、`RB_PLUGINS` 启动按序装载；坏路径 40 / 坏参数 31 / 未装过 20 / 缺能力 60 | ✅ | `unit/plugins.janet`（13 条）、`examples/16-plugins.sh` |
+| REQ-61 | 插件编写 skills：`skills/<name>/SKILL.md` + 可选可跑 `plugin.breve`；文档**必须分节**写清**核心层**（不可碰：词法/转译/栈/流/agent/钩子机制/持久化/协议/退出码/核心词表）与**用户层**（可碰：词/钩子/工具/模式），并给出「用户手打」与「打包插件」两条等价路径；`skills/` 不进 bundle | ✅ | `unit/plugins.janet`（技能样板可装可跑）、`examples/16-plugins.sh`、`tools/core-only-check.janet` |
+
+决策记录：D-67（插件 ABI 与 skills）。

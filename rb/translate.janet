@@ -114,6 +114,9 @@
     "invoke" "rb/invoke"
     "saysys" "rb/saysys"
     # 处理流程（模式）与历史标记开关（D-59）
+    "plug" "rb/plug"
+    "plugins" "rb/plugins"
+    "unplug" "rb/unplug"
     "mode" "rb/mode"
     "modes" "rb/modes"
     "mode-of" "rb/mode-of"

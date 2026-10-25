@@ -3,8 +3,9 @@
 **波兰（前缀）式书写、类 Forth 栈机执行**的 **agent 会话编排方言**，宿主为 Janet 1.42.x（amalgamated，静态嵌入）。
 
 - 命令：`ravel`，脚本扩展名 `.breve`，提示符 `ravel> `
-- 规格（现行）：`ravel-breve-spec-v1.0i.md`（自定义请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
-  `ravel-breve-spec-v1.0c.md` / `ravel-breve-spec-v1.0b.md` 保留为历史（不删改）
+- 规格（现行）：`ravel-breve-spec-v1.0j.md`（插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
+  `ravel-breve-spec-v1.0c.md` … `ravel-breve-spec-v1.0i.md` / `ravel-breve-spec-v1.0b.md` 保留为历史（不删改）
+- 许可：**MIT**（见 `LICENSE`）；嵌入的 Janet 1.42.1 亦为 MIT（见 `vendor/janet`）
 - 规格反馈（缺陷/留白）：`docs/SPEC-FEEDBACK.md`
 - 开发计划与检查点：`PLAN.md`
 
@@ -18,13 +19,13 @@ bash tests/e2e/agent.sh     # 真 provider 验收（NVIDIA；无密钥则跳过�
 bash tests/e2e/opencode.sh  # 真 provider 验收（OpenCode Zen/Go；无密钥则跳过）
 ```
 
-验收现状：**M6**（词表 L0–L9 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
-工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边）。
-`make test` → 378 单元/符合性 + 103 端到端 + 15 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0，`make test-oc` → 真 OpenCode 25/0。
+验收现状：**M10**（词表 L0–L10 + 持久化 + CLI / NDJSON 协议 v1 + agent 基本能力：
+工具调用 / 收尾钩子重试 / 上下文压缩 / 编排边 + 用量 / 取消 / 截止 + 请求头 / 模型列表 + 插件 ABI）。
+`make test` → 390 单元/符合性 + 103 端到端 + 16 例程 + core-only 全绿；`make test-agent` → 真 NVIDIA 14/0，`make test-oc` → 真 OpenCode 25/0。
 
 ```sh
 make clean && make
-./bin/ravel -v                         # ravel breve 1.0i · janet 1.42.1
+./bin/ravel -v                         # ravel breve 1.0j · janet 1.42.1
 ./bin/ravel --dump -e 'take 2 "abcde"' # (do (rb/push "abcde") (rb/push 2) (rb/take))
 ./bin/ravel -e 'take 2 "abcde"'        # "ab"
 ./bin/ravel -e 'map [ * 2 ] { 1 2 3 }' # (2 4 6)
@@ -125,6 +126,27 @@ bcast say "hi" { "coder*" }   # → list Stream（2 个）
 `RB_LLM=mock` 走离线确定性 provider，`RB_MODEL` 换模型。`make test` 全程离线，
 `bash tests/e2e/agent.sh` 才是真机验收（无密钥自动跳过）。
 
+## 插件与 skills（M10 / v1.0j）
+
+**插件 = 一个 `.breve` 文件**，用方言本身书写：没有新语法、没有新文件格式、没有宿主侧 API。
+它只能往**用户层**装东西——词、钩子、工具、模式；**核心层**（词法 / 转译 / 栈 / 流 / agent /
+钩子机制 / 持久化 / 协议 / 退出码 / 核心词表）不可插件化。
+
+```breve
+plug "skills/ravel-breve-plugin/plugin.breve"   # → "plugin"（名字 = 文件名去扩展名）
+plugins                                         # → ("plugin")
+sum2 40 2                                       # → 42（插件里的词；下一轮才可见）
+invoke "sum" H{ "a" 40 "b" 2 }                  # → 42（插件里的工具）
+unplug "plugin"                                 # → 3（词 + 钩子 + 工具）
+```
+
+- **装载不算一轮**：不触发 `@RoundDone`、不往本轮列表塞东西、不写日志/快照；残留操作数不外溢。
+- **原子**：插件里任何一步失败 → 已装的部分全部撤销，原错误码透出。
+- **精确撤销**：`unplug` 只撤这个插件装的；它重定义过的词/工具，卸载时**还原旧词条**。
+- **无传递依赖**：插件里再 `plug` → 31；一次装多个用 `RB_PLUGINS=a.breve,b.breve`（按序）。
+- **不能新增能力**：能力表只有宿主可写；`--core-only` 下 `plug` 报 60（REQ-37 的边界不变）。
+- 写插件的说明书在 `skills/ravel-breve-plugin/SKILL.md`（核心层 / 用户层分节，附可跑样板）。
+
 ## 持久化与工作区（M4）
 
 **工作区 = 字典（函数与常量）+ 栈（变量）**（REQ-30）。两半都可落盘、可复原：
@@ -206,6 +228,8 @@ cap/              能力层（可整目录剔除；核心不静态依赖，REQ-3
 tools/embed.janet 由 MANIFEST 生成 build/rb-bundle.janet 与 build/rb_bundle.c
 tests/            unit / conformance / e2e（+ 附录 D 的 core-only 验收）
 examples/         使用手册里的可跑例程（mock，hermetic；run-all.sh 一次跑完）
+plugins/          面向用户的功能插件（`.breve`）
+skills/           插件编写 skills（SKILL.md + 可跑样板；不进 bundle）
 docs/             符合性矩阵、决策记录、协议草案、规格反馈
 ```
 
@@ -219,3 +243,13 @@ docs/             符合性矩阵、决策记录、协议草案、规格反馈
 | `docs/PROTOCOL.md` | NDJSON over stdio 协议 v1（M5 冻结） |
 | `docs/FRONTEND.md` | 前端契约：REQ-26/27/29 ↔ 协议动作表（M7，编辑器侧） |
 | `docs/SPEC-FEEDBACK.md` | 规格缺陷与待裁决项（CHK-1…CHK-6） |
+| `skills/ravel-breve-plugin/SKILL.md` | **写插件**：核心层 / 用户层分层、ABI、例程、自检清单 |
+
+## 许可
+
+MIT。见 `LICENSE`。
+
+- 本项目：Copyright (c) 2025 uiu007。
+- 嵌入的 `vendor/janet`（Janet 1.42.1 amalgamated）为 Janet 语言自身的 MIT 许可，版权归其作者；
+  本仓库只做字节级嵌入，未修改。
+- `examples/`、`docs/`、`skills/` 与本项目同许可，可直接抄进你自己的插件。

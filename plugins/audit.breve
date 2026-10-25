@@ -1,0 +1,9 @@
+# plugins/audit.breve —— 用户层插件示例：给每轮记一行到 stderr
+#
+# 只加东西：一个钩子 + 一个词。核心层不参与。
+# 注意 `log`（走 stderr）而不是 `print`（stdout 只承载协议，REQ-43 / D-40）。
+
+audit-on : [ log "audit：@RoundDone" ]
+@on @RoundDone [ audit-on ]
+
+audit-count : [ usage "calls" ]

@@ -62,7 +62,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0i · janet 1.42.1
+ravel breve 1.0j · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -183,7 +183,7 @@ show'
 | 差别 | 做法 |
 |---|---|
 | 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
-| 必须自称客户端 | `User-Agent: ravel-breve/1.0i`（**不许**用通用 SDK 名）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0j`（**不许**用通用 SDK 名）|
 | 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
 
 另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
@@ -1538,7 +1538,7 @@ show'
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0i · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0j · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -1603,7 +1603,107 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 
 ---
 
-## 17. 常见坑（十二条）
+## 17. 插件与 skills
+
+**插件 = 一个 `.breve` 文件**，用方言本身写。没有新语法、没有新文件格式、没有宿主侧 API：
+它就是「一串定义行 + `@on` + `deftool`」打包成可分发、可一键卸载的东西。
+
+### 17.1 三个词
+
+```
+plug "plugins/audit.breve"      # Path -- String（插件名 = 文件名去扩展名）
+plugins                         # -- Seq（已装，升序）
+unplug "audit"                  # Name -- Int（撤掉的项数：词 + 钩子 + 工具）
+```
+
+```
+$ printf 'plug "skills/ravel-breve-plugin/plugin.breve"\nplugins\n' | ./bin/ravel
+ravel> "plugin"
+ravel> ("plugin")
+```
+
+**词在下一轮才可见**（转译先于执行，和 `load` 一样）：同一份源里 `plug` 后立刻用会报 20。
+REPL 里一行就是一轮，所以：
+
+```
+$ printf 'plug "skills/ravel-breve-plugin/plugin.breve"\nsum2 40 2\n' | ./bin/ravel
+ravel> "plugin"
+ravel> 42
+```
+
+### 17.2 插件里能装什么（用户层 ⊂ 插件）
+
+| 装什么 | 写法 | 卸载时 |
+|---|---|---|
+| 词 | `名字 : "说明" [ 体 ]` | 从字典删除；若它重定义了旧词则**还原旧词条** |
+| 钩子 | `@on @Close [ … ]` | 从钩子表摘掉那一个引号 |
+| 工具 | `deftool "名字" "说明" [ … ]` | 从工具表删除（旧工具体一并还原）|
+
+**核心层装不了**：词法 / 转译 / 栈 / 流 / agent / 钩子机制 / 持久化 / 协议 / 退出码 / 核心词表
+都不是插件能碰的；事件名也是闭集（`@Start` … `@RoundDone` 之外 → 31）。
+判断标准很简单：**这件事用户手打同样的源能不能做**——能，就是插件；不能，那是规格修订。
+
+样板（`skills/ravel-breve-plugin/plugin.breve`，可直接跑）：
+
+```breve
+sum2 : "两个数相加（Sum2 -- N）" [ + ]
+
+@on @Close [ flag-set true "saw-close" ]
+
+deftool "sum" "把两个整数相加" [ dup
+at "a"
+swap
+at "b"
++ ]
+```
+
+```
+$ ./examples/16-plugins.sh
+ravel> "plugin"
+ravel> ("plugin")
+ravel> 42
+ravel> 42
+ravel> 3
+ravel> ()
+```
+
+（依次是：插件名 / 台账 / 插件里的词 / 插件里的工具 / 撤了几项 / 台账空了。）
+
+### 17.3 装与卸的语义
+
+- **不算一轮**：装载不触发 `@RoundDone`、不往本轮列表塞东西、不写日志/快照；
+  栈深前后不变（插件里残留的操作数不外溢）。
+- **原子**：插件里任何一步失败 → 已装的部分**全部撤销**，原错误码透出。
+  ```
+  $ ./bin/ravel -e 'plug "tests/fixtures/plugins/fail.breve"'; echo $?
+  ravel: 插件炸了
+
+  33
+  ```
+- **精确撤销 + 同名重装**：`unplug` 只撤这个插件的；同名插件再装 = 先卸旧账，不留孤儿注册。
+- **无传递依赖**：插件里再 `plug` → 31。要一次装多个：
+  ```
+  $ RB_PLUGINS=plugins/audit.breve,plugins/toolkit.breve ./bin/ravel -e 'plugins'
+  ("audit" "toolkit")
+  ```
+- **不能新增能力**：能力表只有宿主可写。所以 `--core-only` 构建下 `plug` 报 **60**
+  （它读插件文件本身要用 `:fs/read`）——这是 REQ-37 的边界，不是 bug。
+- **已知的不可逆副作用**：插件可以 `@off` 掉默认钩子，`unplug` **不会**把它装回来
+  （`@off` 是用户对工作区的显式动作）；想恢复就 `mode "default"`。
+- 沙箱默认只允许读**当前目录**：插件放在别处又不设 `RB_SANDBOX` → 40。
+
+### 17.4 写插件时的三个硬约束
+
+1. **一行一条语句**：`[ at "a" + 1 ]` 写在**一行**里 = `at` 带三个操作数，不是三条语句。
+2. **词一律前缀**（`+ 1` 不是 `1 +`）；字符串拼接用 `,`（`join2`），`+` 只做数值加法。
+3. **工具体第一步是 `at "参数"`**，参数表由宿主压栈；取第二个字段前先 `dup` 保住表。
+
+完整的写插件指南（分层、ABI、自检清单、常见错误表）在 `skills/ravel-breve-plugin/SKILL.md`；
+装上你的 agent 客户端后可以直接当 skill 用。
+
+---
+
+## 18. 常见坑（十二条）
 
 1. **一行 = 一个语句**。`1 2 +` 不是「压 1、压 2、加」，是镜像后的 `+ 2 1` → 30。
    要分步就换行。
@@ -1625,7 +1725,7 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 
 ---
 
-## 18. 词表速查
+## 19. 词表速查
 
 | 层 | 词 |
 |---|---|
@@ -1643,15 +1743,17 @@ ravel: 未注册的工具：nope（先 deftool 注册，REQ-48）
 | L7 持久化 / 工作区 | `read` `write` `current` `save` `load` `compact` `usage` |
 | L8 钩子 / 工具 | `@on` `@off` `deftool` `invoke` `resend` `stop` `cancel` `drain` `next` |
 | L9 前端 | `watch` `subscribe` `unsubscribe` |
+| L9b 插件 | `plug` `plugins` `unplug` |
 | provider 配置 | `llm` `llm-get` `llm-set` `llm-models` `llm-auto` |
 
-完整栈效应见 `ravel-breve-spec-v1.0i.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
+完整栈效应见 `ravel-breve-spec-v1.0j.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
 （v1.0e 已把 SF-14…SF-35 冻结；v1.0f 加 REQ-52 处理流程层；v1.0g 加沙箱与默认工具；
-v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型列表）。
+v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型列表；
+v1.0j 加插件 ABI 与 skills）。
 
 ---
 
-## 19. 例程目录
+## 20. 例程目录
 
 | 文件 | 主题 |
 |---|---|
@@ -1670,6 +1772,7 @@ v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型�
 | `examples/13-tools.breve` | 默认工具包：`glob` / `grep` / `edit`（`shell` 默认关）|
 | `examples/14-usage-cancel.breve` | 用量记账（`usage`）与取消（`stop` / `cancel`）|
 | `examples/15-headers-models.breve` | 自定义请求头（`headers`）、模型列表（`llm-models`）与自动配置（`llm-auto`）|
+| `examples/16-plugins.sh` | 插件：`plug` / `plugins` / `unplug` 的装-用-卸全程 |
 | `examples/run-all.sh` | 一次跑完上面全部 |
 
 ```

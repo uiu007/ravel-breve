@@ -1464,3 +1464,100 @@ pi 也不会重试这种情况。区别只在收尾：pi 安静收下，本仓 `
 `tests/unit/preset.janet`（自带预设不写 `max-tokens`）；`examples/21-budget.sh` 五步。
 `make test`：测试 455 全绿、端到端 162 全过、例程全过、core-only 通过。
 规格：v1.0r §0 / §4.14（REQ-71）与附录 X。
+
+---
+
+## D-78（v1.0s）：兜底要有出处，估算要取大者，自动更新是一条钩子（REQ-72）
+
+**问题。** v1.0r 把额度交给了模型目录，留了三个尾巴（CHK-7 §10.3 原样记着）：
+
+1. **目录外兜底是自造的 `32768`**，且窗口记 `0` → "未知 = 不夹紧"，夹紧对陌生模型等于没写。
+2. **`est` 只有字节法**（`字节 ÷ 4`）：中文一个字 3 字节 → 只算 `0.75 token/字`，低估 25%。
+3. **"目录自动更新"没人做**：`GET /models` 只报名字、不报窗口与额度。
+
+用户在 v1.0s 的裁决是四句话：配置跟模型目录走（`384000`）、自动更新**用钩子的启停描述**、
+兜底**参考成熟方案**、`est` **取字节/字符较大者**。逐条落到下面四条决定。
+
+### 决定 1：兜底照抄 pi 的两个 `??`，不自造数
+
+pi 在 `dist/core/provider-composer.js` 里对 provider 声明但没写数字的模型用的是：
+
+```js
+contextWindow: definition.contextWindow ?? 128000,
+maxTokens:     definition.maxTokens     ?? 16384,
+```
+
+v1.0r 的 `32768` 是"我们自己想的数"。v1.0s 换成 `16384`，并给目录外的模型一个 **`128000` 的窗口**：
+
+| 情形 | `:context-window` | `:max-tokens` | 预算结果 |
+|---|---|---|---|
+| 目录里核过（`deepseek-v4.1-flash`）| 1000000 | 384000 | `source :model`，夹紧到 384000 |
+| 目录外（`mock`、自建 provider）| 128000（pi 缺省）| 0（= 不知道）| `source :fallback`，16384 |
+| 显式 `RB_MAX_TOKENS` | 同上 | 同上 | `source :explicit`，按窗口夹紧 |
+
+**为什么窗口也要给缺省**：夹紧公式只有在窗口 > 0 时才生效。v1.0r 目录外窗口是 0，
+于是"目录外的模型从不被夹紧"——这不是保守，是**没算**。有了 `128000`，估算真的大起来时
+（比如把整个仓库塞进提示）也能把额度压下去，而不是发出一个必然超长的请求。
+`:max-tokens 0` 保留"不知道"这个事实，好让 `source` 还能区分 `:model` 与 `:fallback`。
+
+### 决定 2：`est` 两种算法取大者
+
+| 算法 | 公式 | 纯 ASCII | 中文 |
+|---|---|---|---|
+| A 字节法 | `ceil(字节 ÷ 4)` | `chars ÷ 4`（= pi 的 `chars ÷ 4`）| `0.75 token/字`（低估 25%）|
+| B 字符法 | `ceil(ASCII ÷ 4) + ceil(非 ASCII 字节 ÷ 3)` | `chars ÷ 4` | `1 token/字` |
+| 取大者 | `max(A, B)` | 两者相等（不加价）| B 胜出（不低估）|
+
+不选"统一按字符 ÷ 2"之类的折中：那会让纯英文估成 2 倍（夹紧来得太早，额度白白变窄），
+而英文提示是本仓最常见的输入。**分字节类各自适用，再取大者**是唯一既不冤枉英文、
+也不放过中文的做法。实测（`RB_DEBUG_BUDGET=1`，同样 8 个字）：
+`abcdefgh` → `est 884`，`你好世界你好世界` → `est 890`（差 6 = 8 − 2）。
+
+### 决定 3：自动更新是一条**可启停的钩子**，缺省不装
+
+`GET /models` 不报窗口与额度，所以"自动更新"只可能更新**名字**。既然如此：
+
+- 不写成环境变量开关（`RB_CATALOG=refresh` 之类）：那会变成"本仓的缺省偏好"，还要新增变量；
+- 也不做成缺省行为：每轮一次网络请求，为了几个名字，离线会失败、调试会变慢；
+- 写成**两个 0 元词 + 一条用户装得上的钩子**：
+
+| 词 | 栈效应 | 做什么 |
+|---|---|---|
+| `catalog` | `-- Table` | 目录的副本（看清楚有哪些、数字是多少）|
+| `catalog-refresh` | `-- Int` | 拉一次 `/models`，登记没见过的名字（`:max-tokens 0` + 窗口 128000），返回新增条数 |
+
+装：`@on @Start [ catalog-refresh ]`（每轮开始刷一次）。卸：`@off @Start`。
+本仓**不放**任何 `@Start` 缺省钩子，所以 `@off @Start` 就是"关掉自动更新"，语义干净。
+
+**只登记名字，不改已核过的数**：人核的 `384000` 是事实，API 不报额度，别用 `0` 覆盖它。
+重复刷新幂等（第二次返回 `0`）。
+
+### 决定 4：用户配置里的 `max-tokens` 删掉
+
+`~/.config/ravel/config.json` 里那个 `"max-tokens": 1024`（v1.0q 遗留）是"照抄预设把病根
+抄进机器"的现场。既然预设已经不再写这个键（D-77），用户配置也一并删掉：
+**额度归模型目录，配置只写 provider / model / temperature / 必要的 headers**。
+删后实测：`llm-get "max-tokens"` → `384000`（目录值），真跑一次请求 `BUDGET| …
+:max-tokens 384000 :source :model`，`finish stop`，正常回话。
+
+### 踩到的坑
+
+- `cap/est-tokens` 重构时少了一个右括号，Janet 报的是**文件末尾**的
+  `unexpected end of source, ( opened at line 6086`（amalgamated bundle 里是拼接后的行号），
+  不是出错的那一行——改这种"多行 `string` 拼接"的表达式最好先跑一次 `make all`。
+- `catalog at "x"` 读不出来：本方言的操作数顺序是 **键在前、表在后**（`at "a" from-json …`），
+  写成 `catalog at "x"` 会栈下溢。`at "deepseek-v4.1-flash" catalog` 才对。
+- mock provider 原先不打 `BUDGET|`（只有 opencode / nvidia 打），于是"est 随语言变"离线看不见；
+  v1.0s 让 mock 也打一行（仍然只在 `RB_DEBUG_BUDGET=1` 时）。
+- 测试里 `(put cap/model-catalog "mock" nil)` 是**删除键**（Janet 的 `put` 给 nil 即删），
+  正好用来把全局目录清干净——目录是进程级全局状态，测试之间会互相污染。
+
+### 验收
+
+- `tests/conformance/req-72-catalog.janet` 六条（兜底 128000/16384、`est` 空串/ASCII/中文/混排/
+  恒不小于字节法、刷新只登记名字且不改已核过的数、刷新幂等、`catalog` 是副本、
+  缺省不装钩子不联网、`@on @Start` 开启与 `@off @Start` 关闭）。
+- `tests/conformance/req-71-budget.janet` 改为断言 `16384` / `128000`（原 `32768` / `0`）。
+- `tests/unit/config.janet`（兜底 16384）、`examples/21-budget.sh`（数字）、`examples/22-catalog.sh` 五步。
+- `make test`：测试 **461** 全绿、端到端 162 全过、例程全过（含 22）、core-only 通过。
+- 规格：v1.0s §0.1 / §4.14（REQ-71 修订 + REQ-72）与附录 Y。

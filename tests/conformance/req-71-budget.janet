@@ -74,11 +74,12 @@
     (is= 1000000 (b :context-window) "pi 目录里是 1e6")
     (is= 384000 (b :max-tokens) "pi 目录里是 384000")
     (is= 0 ((cap/model-budget "no-such-model") :max-tokens) "目录外不猜上限")
-    (is= 0 ((cap/model-budget "no-such-model") :context-window) "窗口未知 = 0")))
+    (is= 128000 ((cap/model-budget "no-such-model") :context-window)
+        "目录外的窗口用 pi 的缺省 128000（v1.0s / D-78）")))
 
 (deftest "REQ-71：clampMaxTokensToContext（窗口未知不裁剪；已知则留出输入与 4096 安全余量）"
   (fn []
-    (is= 32768 (cap/clamp-max-tokens 32768 0 12) "窗口未知 → 原样")
+    (is= 16384 (cap/clamp-max-tokens 16384 0 12) "窗口未知（<= 0）→ 原样")
     (is= 4904 (cap/clamp-max-tokens 1000000 10000 1000) "10000 - 1000 - 4096 = 4904")
     (is= 1 (cap/clamp-max-tokens 100000 5000 4900) "余量为负 → 夹到下限 1（pi 的 MIN_MAX_TOKENS）")
     (is= 4000 (cap/clamp-max-tokens 4000 1000000 10) "额度本身小就照发，不放大")))
@@ -88,10 +89,10 @@
     # 缺省：目录外的模型（mock 的缺省模型不在目录里）
     (r71-with-env [["RB_LLM" "mock"] ["RB_MODEL" nil] ["RB_MAX_TOKENS" nil]]
       (fn []
-        (is= 32768 (cap/llm-max-tokens) "缺省是够推理用的大值，不再写死 8192")
+        (is= 16384 (cap/llm-max-tokens) "缺省取 pi 的 `?? 16384`（v1.0s / D-78）")
         (def b (cap/llm-budget @[] @{}))
         (is= :fallback (b :source))
-        (is= 32768 (b :max-tokens))))
+        (is= 16384 (b :max-tokens))))
     # 模型上限：目录里的模型
     (r71-with-env [["RB_LLM" "opencode"] ["RB_MODEL" "deepseek-v4.1-flash"]
                    ["RB_MAX_TOKENS" nil]]

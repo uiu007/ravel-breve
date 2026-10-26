@@ -85,6 +85,34 @@
   (rb/config-set "model" chosen)
   chosen)
 
+# ---- 模型目录：读、刷新（REQ-71 / REQ-72）--------------------------------
+#
+# 目录只放**核过的数字**（`:context-window` / `:max-tokens`）。自动更新能做的事很有限：
+# `GET /models` 只给名字，不给窗口与额度，所以刷新**只登记名字**（额度记 0 = 不知道，
+# 窗口记 pi 的缺省 128000），已有条目的数字一个都不改——人核过的数不被 API 覆盖。
+
+(defn cap/catalog
+  "当前模型目录的**副本**（改了副本不影响下次请求的预算）。"
+  []
+  (def out @{})
+  (eachp [k v] cap/model-catalog
+    (put out k (table/clone v)))
+  out)
+
+(defn cap/catalog-refresh
+  "拉一次 `GET <基址>/models`，把目录里**没有**的名字登记成「知道名字、不知道额度」。
+   返回新增条数（网络活走能力层，核心只发命令：REQ-37）。"
+  []
+  (def names (cap/llm-models))
+  (var added 0)
+  (each n names
+    (def k (string n))
+    (when (nil? (get cap/model-catalog k))
+      (put cap/model-catalog k
+           @{:context-window cap/model-context-default :max-tokens 0})
+      (++ added)))
+  added)
+
 (defn cap/llm-chat
   "能力 :llm/chat 的实现：按配置选 provider 并转调。"
   [messages opts]
@@ -110,5 +138,7 @@
   (f messages opts2))
 
 (rb/cap-put :llm/models cap/llm-models)
+(rb/cap-put :llm/catalog cap/catalog)
+(rb/cap-put :llm/catalog-refresh cap/catalog-refresh)
 (rb/cap-put :llm/auto cap/llm-auto)
 (rb/cap-put :llm/chat cap/llm-chat)

@@ -409,7 +409,7 @@ RB_CONTINUE_MAX=0 RB_MOCK_FINISH=length RB_MOCK_REPLY='写完了。' ./bin/ravel
 | 4 | 一直空转 | `60`；消息点名 `RB_MAX_TOKENS`（现值按模型）与 D-76 |
 | 5 | `RB_CONTINUE_MAX=0` | `:continues 0`，一次响应就收尾（旧行为）|
 | 6 | 有工具调用 | **不续写**：先把工具批执行完（`calls > 0` 挡住误判）|
-| 7 | `make test` / `-v` | `455 + 162 + 21 + core-only` 全绿；`ravel breve 1.0r · janet 1.42.1` |
+| 7 | `make test` / `-v` | `455 + 162 + 21 + core-only` 全绿（v1.0s：461 + 162 + 22）；`ravel breve 1.0s · janet 1.42.1` |
 
 ### 9.2 真跑一次（v1.0q 后的第一轮，OpenCode / `deepseek-v4.1-flash`）
 
@@ -449,7 +449,7 @@ OPENCODE_API_KEY=… RB_CONFIG=- RB_LLM=opencode RB_MODEL=deepseek-v4.1-flash \
 ```sh
 # ① 模型目录：目录内按模型上限，目录外兜底
 RB_LLM=opencode ./bin/ravel -e 'llm-get "max-tokens"'          # → 384000
-RB_LLM=mock     ./bin/ravel -e 'llm-get "max-tokens"'          # → 32768（兜底）
+RB_LLM=mock     ./bin/ravel -e 'llm-get "max-tokens"'          # → 16384（兜底，v1.0s）
 RB_LLM=opencode RB_MODEL=deepseek-v4.1-flash-free ./bin/ravel -e 'llm-get "max-tokens"'   # → 32000
 
 # ② 显式压过目录
@@ -474,7 +474,7 @@ cat presets/opencode-go.json                                     # 只有 provid
 
 | # | 手工动作 | 期望 |
 |---|---|---|
-| 1 | `llm-get "max-tokens"` | 目录内模型 = 模型上限；目录外 = `32768` |
+| 1 | `llm-get "max-tokens"` | 目录内模型 = 模型上限；目录外 = `16384`（v1.0s 起；v1.0r 是 `32768`）|
 | 2 | 显式 `RB_MAX_TOKENS` | 显式值胜出（仍按上下文夹紧）|
 | 3 | `RB_DEBUG_BUDGET=1` | 每次请求一行 `BUDGET|`，含 `:est` 与 `:source` |
 | 4 | `out >= max` | `60`，消息点名 `out/max`，**不续写** |
@@ -499,13 +499,92 @@ OPENCODE_API_KEY=… RB_CONFIG=- RB_LLM=opencode RB_MODEL=deepseek-v4.1-flash   
 
 同一任务在 v1.0q（8192）下要么截断续写、要么 `60`；v1.0r 不设任何覆盖就跑通了。
 
-### 10.3 仍然留给用户裁决
+### 10.3 v1.0r 留给用户的三个裁决 —— 已在 v1.0s 收口（见 §11）
 
-- **模型目录要不要自动更新**：现在是手写三行（`deepseek-v4.1-flash` / `-free` / `v3.2`）。
-  要不要像 `llm-auto` 那样拉一次 `GET /models`（OpenAI 形状不带 `context_window` / `max_tokens`，
-  得靠 provider 专有字段或人填）？当前不猜。
-- **目录外模型的兜底 `32768`**：够大但不精确；要不要按 provider 给一个更贴的数？
-- **`est` 的估算口径**：JSON 字节 ÷ 4 与 pi 同量级，但中文按字节算会偏保守（估多 → 夹紧更狠）。
-  要不要按字符数 + 字节数取大者？
+- ~~模型目录要不要自动更新~~ → **v1.0s 裁决：用钩子的启停描述**（`@on` / `@off @Start`，缺省不装）。
+- ~~目录外模型的兜底 `32768` 够不够贴~~ → **v1.0s 裁决：照抄 pi 的 `?? 16384`**，窗口给 `?? 128000`。
+- ~~`est` 要不要按字符/字节取大者~~ → **v1.0s 裁决：取大者**（`cap/est-text-tokens`）。
 - **`stop` 但零正文仍续写**：有意偏离 pi（pi 安静收下）。实测救回过一轮；若哪天 provider 稳定了，
   可以收掉这一条。
+
+---
+
+## 11. v1.0s 追记：模型目录的兜底、估算与自动更新（D-78 / REQ-72）
+
+### 11.1 用户的四句话与落点
+
+| 用户的话 | 落点 |
+|---|---|
+| 用户配置应跟随模型目录的 `384000` | 删掉 `~/.config/ravel/config.json` 里的 `"max-tokens": 1024`；`llm-get "max-tokens"` → `384000` |
+| 自动更新用钩子的启停来描述 | 新词 `catalog-refresh`（0 元）；缺省不装钩子，`@on @Start [ catalog-refresh ]` 开启，`@off @Start` 关闭 |
+| 目录外兜底参考成熟方案 | 照抄 pi 的 `contextWindow ?? 128000` / `maxTokens ?? 16384`（`provider-composer.js`）|
+| `est` 改成字节/字符取大者 | `cap/est-text-tokens`：字节法 vs 字符法取 `max` |
+
+### 11.2 六步人工验收
+
+```sh
+# ① 用户配置不再钉额度（删键之后）
+./bin/ravel -e 'llm-get "max-tokens"'                          # → 384000（目录值）
+
+# ② 目录外兜底：额度 16384、窗口 128000
+RB_LLM=mock RB_CONFIG=- ./bin/ravel -e 'llm-get "max-tokens"'   # → 16384
+RB_LLM=mock RB_CONFIG=- RB_DEBUG_BUDGET=1 ./bin/ravel -e 'agent "c" { }
+send say "hi"
+drain' 2>&1 | grep BUDGET
+# BUDGET| @{:context-window 128000 :est 8xx :max-tokens 16384 :source :fallback}
+
+# ③ est 两种算法取大者（同样 8 个字，ASCII 与汉字的估算不同）
+RB_DEBUG_BUDGET=1 RB_LLM=mock RB_CONFIG=- ./bin/ravel -e '…send say "abcdefgh"…'        # est 884
+RB_DEBUG_BUDGET=1 RB_LLM=mock RB_CONFIG=- ./bin/ravel -e '…send say "你好世界你好世界"…'   # est 890
+
+# ④ 目录：读 + 刷新（只登记名字，幂等）
+RB_LLM=mock ./bin/ravel -e 'at "deepseek-v4.1-flash" catalog'   # @{:context-window 1000000 :max-tokens 384000}
+RB_LLM=mock ./bin/ravel -e 'catalog-refresh'                    # → 1（多出 mock）
+RB_LLM=mock ./bin/ravel -e 'catalog-refresh catalog-refresh'    # 第二次 → 0（同上）
+
+# ⑤ 钩子的启停
+RB_LLM=mock ./bin/ravel -e 'len catalog'                        # → 3（缺省不装钩子，不联网）
+RB_LLM=mock ./bin/ravel -e '@on @Start [ catalog-refresh ]
+agent "c" { }
+send say "hi"
+drain
+len catalog'                                                   # → 4
+RB_LLM=mock ./bin/ravel -e '@on @Start [ catalog-refresh ]
+@off @Start
+agent "c" { }
+send say "hi"
+drain
+len catalog'                                                   # → 3
+
+# ⑥ 例程
+./examples/22-catalog.sh
+```
+
+| # | 手工动作 | 期望 |
+|---|---|---|
+| 1 | 删掉配置里的 `max-tokens` | `llm-get "max-tokens"` = `384000`（跟着目录走）|
+| 2 | 目录外的模型 | 额度 `16384`、窗口 `128000`、`source :fallback` |
+| 3 | `est` | 中文比同字数 ASCII 大（8 个字：890 vs 884）|
+| 4 | `catalog-refresh` | 只登记名字（`:max-tokens 0`）、不改已核过的数、幂等 |
+| 5 | `@on` / `@off @Start` | 开启后目录多一条；关掉后不再刷新 |
+| 6 | `22-catalog.sh` | 五步全过 |
+
+### 11.3 真跑一次（配置删键之后，`deepseek-v4.1-flash`）
+
+```sh
+./bin/ravel -e 'agent "c" { }
+send say "hi"
+drain'
+```
+
+`BUDGET| … :context-window 1000000 :est 885 :max-tokens 384000 :source :model`，
+`finish stop`，正常回话；配置里再没有 `max-tokens` 这一项。
+
+### 11.4 仍然留给用户裁决
+
+- **目录要不要扩容**：现在手写三行（`deepseek-v4.1-flash` / `-free` / `v3.2`）。
+  `catalog-refresh` 只能发现名字；要给新模型准确额度仍得改 `cap/model-catalog`（人核过再写）。
+- **`est` 的字符法系数**：非 ASCII 按 `字节 ÷ 3` 折成字，对 emoji（4 字节）略偏保守；
+  要不要按码点数？当前不猜（保守方向只会让夹紧更早）。
+- **`@Start` 是不是该多一条"只在第一轮刷新"的形态**：现在每轮一次 `GET /models`；
+  若嫌请求多，可以再加一个只在 `@RoundDone` 之后刷新一次的钩子写法（未定，先不做）。

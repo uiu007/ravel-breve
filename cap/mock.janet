@@ -165,6 +165,9 @@
   (when (= "1" (cap/mock-list-at "RB_MOCK_EMPTY" (cap/mock-turn-idx messages)))
     (set text ""))
   # REQ-71：mock 也要走同一套预算（`RB_MAX_TOKENS` 小到离谱时能测「额度用完」）
-  (cap/mock-chat-tools messages opts text (cap/llm-budget messages opts)))
+  # REQ-72：mock 也打 `BUDGET|` 行，于是「est 随语言变」不用联网就能看
+  (def budget (cap/llm-budget messages opts))
+  (when (os/getenv "RB_DEBUG_BUDGET") (eprintf "BUDGET| %q" budget))
+  (cap/mock-chat-tools messages opts text budget))
 
 (rb/cap-put :llm/mock cap/mock-chat)

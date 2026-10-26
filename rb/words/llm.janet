@@ -5,6 +5,8 @@
 #   llm-set  Value Key --              写一项；Value 为 nil = 删除（回落）
 #   llm-models      -- Seq             拉一次当前 provider 的可用模型名（D-66）
 #   llm-auto        -- String          拉模型列表 → 按偏好选一个 → 写回 `model`（D-66）
+#   catalog         -- Table           当前的模型目录（副本；名字 → 窗口/额度）
+#   catalog-refresh -- Int             拉一次模型列表，把没见过的名字登记进目录（REQ-72）
 #   llm-import NameOrPath -- Table     一键导入预设（presets/<名字>.json 或路径，REQ-62）
 #   llm-export Path       -- Int       把**生效**配置导出成预设文件（REQ-62）
 #   usage           -- Table           本次会话累计的用量（P2：prompt / completion / total / calls）
@@ -48,6 +50,27 @@
   (when (nil? f)
     (rb/raise (rb/exit-table :orchestration-base)
               "能力层未提供 :llm/auto（REQ-37：核心不含网络实现）"))
+  (rb/push (f)))
+
+(defn rb/catalog
+  " -- Table；模型目录的副本。可以用 `at` 读某个模型的窗口与额度（键名同模型名）。"
+  []
+  (def f (rb/cap-get :llm/catalog))
+  (when (nil? f)
+    (rb/raise (rb/exit-table :orchestration-base)
+              "能力层未提供 :llm/catalog（REQ-37：核心不含网络实现）"))
+  (rb/push (f)))
+
+(defn rb/catalog-refresh
+  " -- Int；拉一次当前 provider 的模型列表，把目录里没有的名字登记进去，压回**新增条数**。
+   只登记名字，不登记额度（`GET /models` 不报窗口/额度）：额度仍走 pi 的兜底。
+   缺省**不装**在任何事件上——要自动更新就 `@on @Start [ catalog-refresh ]`，
+   `@off @Start` 即关（REQ-72：自动与否是钩子的启停，不是本仓的缺省偏好）。"
+  []
+  (def f (rb/cap-get :llm/catalog-refresh))
+  (when (nil? f)
+    (rb/raise (rb/exit-table :orchestration-base)
+              "能力层未提供 :llm/catalog-refresh（REQ-37：核心不含网络实现）"))
   (rb/push (f)))
 
 (defn rb/llm-import

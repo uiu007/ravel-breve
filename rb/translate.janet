@@ -142,6 +142,9 @@
     "llm-auto" "rb/llm-auto"
     "llm-import" "rb/llm-import"
     "llm-export" "rb/llm-export"
+    # 模型目录（REQ-71 / REQ-72）
+    "catalog" "rb/catalog"
+    "catalog-refresh" "rb/catalog-refresh"
     "usage" "rb/usage"
     # L8 钩子与流（M3）
     "@on" "rb/hook-on"

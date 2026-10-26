@@ -235,7 +235,12 @@
 
 (def cap/min-max-tokens 1)              # pi: MIN_MAX_TOKENS
 (def cap/context-safety-tokens 4096)    # pi: CONTEXT_SAFETY_TOKENS
-(def cap/llm-max-tokens-default 32768)  # 模型不在目录里时的保守大值（D-77）
+# 目录外/没核过额度的模型走 pi 的两个 `??` 缺省（D-78）：
+#   `contextWindow ?? 128000` / `maxTokens ?? 16384`
+# 16384 是 pi 对**没写 maxTokens 的 provider 模型**用的数；128000 是它的窗口缺省，
+# 有了窗口，`clampMaxTokensToContext` 才能对所有模型一致地起作用（不再"未知 = 不夹紧"）。
+(def cap/model-context-default 128000)
+(def cap/llm-max-tokens-default 16384)
 
 (def cap/model-catalog
   "只收 pi 的模型目录里能核对到数字的模型（`:context-window` / `:max-tokens`）。
@@ -245,10 +250,13 @@
     "deepseek-v3.2" @{:context-window 128000 :max-tokens 65536}})
 
 (defn cap/model-budget
-  "模型 → `@{:context-window n :max-tokens n}`；不认识就是两个 0（= 未知）。"
+  "模型 → `@{:context-window n :max-tokens n}`。
+   目录里核过的用核过的数；**没核过**的窗口用 pi 的缺省 128000、额度记 0（= 不知道），
+   由 `cap/llm-budget` 落到兜底额度。"
   [model]
-  (or (get cap/model-catalog (string model))
-      @{:context-window 0 :max-tokens 0}))
+  (def e (get cap/model-catalog (string model)))
+  @{:context-window (or (and e (e :context-window)) cap/model-context-default)
+    :max-tokens (or (and e (e :max-tokens)) 0)})
 
 (defn cap/llm-max-tokens-explicit
   "显式配置的额度（工作区配置 > `RB_MAX_TOKENS`）；没设 → nil。"
@@ -267,21 +275,41 @@
       (def mb ((cap/model-budget (cap/llm-model)) :max-tokens))
       (if (> mb 0) mb cap/llm-max-tokens-default))))
 
+(defn cap/json-str
+  "JSON 编码后的串；编不出来就当空串。"
+  [enc x]
+  (def p (protect (enc x)))
+  (if (and (get p 0) (string? (get p 1))) (get p 1) ""))
+
 (defn cap/json-len
   "JSON 编码后的字节数；编不出来就当 0。"
   [enc x]
-  (def p (protect (enc x)))
-  (if (and (get p 0) (string? (get p 1))) (length (get p 1)) 0))
+  (length (cap/json-str enc x)))
+
+(defn cap/est-text-tokens
+  "一段文本的 token 估算——**两种算法取大者**（D-78）：
+   A 字节法：`字节数 / 4`（pi 的 `chars / 4` 对纯 ASCII 与它完全一致）；
+   B 字符法：ASCII 按 4 个字符一个 token，非 ASCII 按**一个字一个 token**（UTF-8 约 3 字节）。
+   取大者：纯英文两种算法相等（不会为英文多付 4 倍），中日韩由 B 兜住
+   （A 对中文只有 0.75 token/字，会低估 25%）。"
+  [s]
+  (var ascii 0)
+  (var other 0)
+  (each b s
+    (if (< b 128) (++ ascii) (++ other)))
+  (max (math/ceil (/ (+ ascii other) 4))
+       (+ (math/ceil (/ ascii 4)) (math/ceil (/ other 3)))))
 
 (defn cap/est-tokens
-  "粗估这次请求的**输入** tokens：JSON 字节数 / 4（与 pi 的估算同量级）。"
+  "粗估这次请求的**输入** tokens（消息 + 工具表），算法见 `cap/est-text-tokens`。"
   [messages tools]
   (def enc (rb/cap-get :json/encode))
   (if (nil? enc)
     0
-    (math/ceil (/ (+ (cap/json-len enc messages)
-                     (if tools (cap/json-len enc tools) 0))
-                  4))))
+    (cap/est-text-tokens
+      (string (cap/json-str enc messages)
+              (if tools (cap/json-str enc tools) "")
+              ))))
 
 (defn cap/clamp-max-tokens
   "pi 的 `clampMaxTokensToContext`：窗口未知（<= 0）就原样；否则留出输入与安全余量。"

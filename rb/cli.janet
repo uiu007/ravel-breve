@@ -14,8 +14,8 @@
 # 保留名表**不得**与词表重名（REQ-09：一个名字只有一种词性）——`watch` 是方言词
 # （L9），所以它不在这里。
 
-(def rb/version "1.0r")
-(def rb/version-string "ravel breve 1.0r · janet 1.42.1")
+(def rb/version "1.0s")
+(def rb/version-string "ravel breve 1.0s · janet 1.42.1")
 
 # REQ-25：保留的元命令名（无前缀裸词，均不是方言词）
 (def rb/meta-commands

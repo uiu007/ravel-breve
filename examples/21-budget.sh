@@ -11,12 +11,12 @@
 #   clampMaxTokensToContext(model, context, 想要的额度)
 #     = min(想要的额度, max(1, 上下文窗口 - 估算输入 - 4096))
 # 对 `deepseek-v4.1-flash` 就是 384000（模型目录里 1e6 上下文 / 384000 输出）。
-# v1.0r 照抄这套：显式配置 > 模型目录的上限 > 兜底 32768，再按上下文余量夹紧。
+# v1.0r 照抄这套：显式配置 > 模型目录的上限 > 兜底 16384，再按上下文余量夹紧。
 cd "$(dirname "$0")/.." || exit 1
 export RB_CONFIG=-
 fail=0
 
-echo '-- 1) 模型目录外的模型：兜底 32768（够推理用的大值）'
+echo '-- 1) 模型目录外的模型：兜底 16384（够推理用的大值）'
 RB_LLM=mock ./bin/ravel -e 'llm-get "max-tokens"' || fail=1
 echo
 

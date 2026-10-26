@@ -65,7 +65,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0r · janet 1.42.1
+ravel breve 1.0s · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -194,7 +194,7 @@ show'
 | 差别 | 做法 |
 |---|---|
 | 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
-| 必须自称客户端 | `User-Agent: ravel-breve/1.0r`（**不许**用通用 SDK 名）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0s`（**不许**用通用 SDK 名）|
 | 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
 
 另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
@@ -218,7 +218,7 @@ $ make test-agent     # NVIDIA
 | `provider` | `RB_LLM` | `auto` | `nvidia` / `opencode` / `mock` / `auto`（`auto` = 有谁家的密钥就用谁，都没有则 `mock`） |
 | `model` | `RB_MODEL` | 按 provider：NVIDIA `meta/llama-3.2-11b-vision-instruct`，OpenCode `deepseek-v4.1-flash` | 真 provider 的模型名 |
 | `endpoint` | `RB_ENDPOINT` | 按 provider 的官方端点 | 兼容 OpenAI 形状的服务也能接；OpenCode 另可用 `RB_OC_BASE` 换基址 |
-| `max-tokens` | `RB_MAX_TOKENS` | 按模型（模型目录；目录外 `32768`）| 单次响应上限。**别当常数看**：v1.0r 起按模型上限与上下文余量逐请求算（§14.5.10）。推理型模型把 `reasoning_content` 也算在这份预算里 |
+| `max-tokens` | `RB_MAX_TOKENS` | 按模型（模型目录；目录外 `16384`）| 单次响应上限。**别当常数看**：v1.0r 起按模型上限与上下文余量逐请求算（§14.5.10）。推理型模型把 `reasoning_content` 也算在这份预算里 |
 | `temperature` | `RB_TEMPERATURE` | `0.2` | 采样温度 |
 | `headers` | `RB_HEADERS` | `@{}` | 自定义请求头（`Table` 或 `K:v,…` / JSON；**覆盖同名内置头**，见 §14.9）|
 
@@ -1614,10 +1614,10 @@ v1.0r 照抄这套：
 
 | 环节 | 规则 |
 |---|---|
-| 模型目录（`cap/model-catalog`）| 认识的模型带 `:context-window` / `:max-tokens`；目录外**不猜**，用兜底 `32768` |
-| 想要的额度（`want`）| 调用方显式 > 工作区配置 / `RB_MAX_TOKENS` > 目录的 `:max-tokens` > 兜底 |
-| 估算输入（`est`）| 消息 + 工具表 JSON 字节数 ÷ 4（与 pi 同量级）|
-| 夹紧 | `min(want, max(1, context-window - est - 4096))`；窗口未知（`<= 0`）不夹紧 |
+| 模型目录（`cap/model-catalog`）| 认识的模型带 `:context-window` / `:max-tokens`；目录外**不猜额度**（记 `0`），窗口按 pi 的缺省 `128000` |
+| 想要的额度（`want`）| 调用方显式 > 工作区配置 / `RB_MAX_TOKENS` > 目录的 `:max-tokens` > 兜底 `16384` |
+| 估算输入（`est`）| 消息 + 工具表，**两种算法取大者**：字节法 `字节÷4`；字符法 `ASCII÷4 + 非ASCII字节÷3`（§14.5.11）|
+| 夹紧 | `min(want, max(1, context-window - est - 4096))`；窗口 `<= 0` 不夹紧（现在只有显式传 0 才会）|
 
 ```console
 $ RB_LLM=opencode ./bin/ravel -e 'llm-get "max-tokens"'
@@ -1625,7 +1625,7 @@ $ RB_LLM=opencode ./bin/ravel -e 'llm-get "max-tokens"'
 $ RB_LLM=opencode RB_MAX_TOKENS=16000 ./bin/ravel -e 'llm-get "max-tokens"'
 16000
 $ RB_LLM=mock ./bin/ravel -e 'llm-get "max-tokens"'   # 目录外的模型
-32768
+16384
 ```
 
 想看每一次请求到底算了多少：
@@ -1655,6 +1655,70 @@ $ RB_LLM=mock RB_MAX_TOKENS=1 RB_MOCK_FINISH=length RB_MOCK_REPLY='写完了。'
 send say "写个 README"
 drain'
 ravel: 流失败：输出额度真的用完了：4/1 tokens（D-77）。这不是空转——模型把整份额度都花掉了……
+```
+
+#### 目录外的模型：照抄 pi 的两个 `??`（v1.0s / REQ-72）
+
+v1.0r 的兜底是自造的 `32768`，目录外的窗口记 `0`——于是"未知 = 不夹紧"，
+夹紧对陌生模型等于没写。v1.0s 照抄 pi 的两个缺省
+（`dist/core/provider-composer.js` 的 `contextWindow ?? 128000` / `maxTokens ?? 16384`）：
+
+```console
+$ RB_LLM=mock ./bin/ravel -e 'at "deepseek-v4.1-flash" catalog'
+@{:context-window 1000000 :max-tokens 384000}
+```
+
+目录外的模型额度记 `0`（= 不知道）→ 预算落到兜底 `16384`，窗口 `128000`（`BUDGET|` 行能看到）。
+
+### 14.5.11 目录怎么更新：一条可启停的钩子（v1.0s / REQ-72）
+
+`GET /models` 只报名字，**不报窗口与额度**——所以"自动更新"能做的只有"知道这个模型存在"。
+既要联网、又只换来名字，就不该是缺省行为。于是它是**两个词 + 一条钩子**：
+
+| 词 | 栈效应 | 说明 |
+|---|---|---|
+| `catalog` | `-- Table` | 目录的**副本**（改了不影响预算）|
+| `catalog-refresh` | `-- Int` | 拉一次 `/models`，把没见过的名字登记成「知道名字、不知道额度」，压回新增条数 |
+
+已核过的条目**一个数都不改**（人核的 384000 不被 API 覆盖）；重复刷新幂等（第二次返回 `0`）。
+
+要不要自动刷新，由一条钩子的启停决定：
+
+```console
+$ RB_LLM=mock ./bin/ravel -e 'len catalog'          # 缺省：不装钩子，也不联网
+3
+$ RB_LLM=mock ./bin/ravel -e '@on @Start [ catalog-refresh ]
+agent "c" { }
+send say "hi"
+drain
+len catalog'
+4
+$ RB_LLM=mock ./bin/ravel -e '@on @Start [ catalog-refresh ]
+@off @Start
+agent "c" { }
+send say "hi"
+drain
+len catalog'
+3
+```
+
+- 缺省**不装**在任何事件上：`bin/ravel` 不会替你联网。
+- `@on @Start [ catalog-refresh ]` = 每轮开始刷一次；`@off @Start` = 关（本仓没有别的 `@Start` 缺省钩子）。
+- 刷新只登记名字，额度仍走兜底——想给某个模型准确的额度，就改目录
+  （`cap/config.janet` 的 `cap/model-catalog`）。
+
+#### 估算为什么取两种算法的较大者
+
+字节法对纯 ASCII 与 pi 的 `chars ÷ 4` 完全一致，但中文一个字 3 字节 → 只有 `0.75 token/字`，
+低估 25%，会让夹紧来得更晚。字符法给非 ASCII 一个字一个 token。取大者：
+**纯英文两者相等（不为英文多付 4 倍），中日韩由字符法兜住**。
+
+```console
+$ RB_DEBUG_BUDGET=1 RB_LLM=mock ./bin/ravel -e 'agent "c" { }
+send say "abcdefgh"
+drain' 2>&1 | grep BUDGET
+BUDGET| @{:context-window 128000 :est 884 :max-tokens 16384 :source :fallback}
+# 换成 send say "你好世界你好世界" → est 890（同样 8 个字，多 6）
 ```
 
 #### 预设不再钉额度
@@ -1999,7 +2063,7 @@ $ tools/oc-setup.sh --local             # 不想写家目录：配置写 ./.rave
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0r · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0s · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -2207,8 +2271,9 @@ ravel> ()
 | L9b 插件 | `plug` `plugins` `unplug` |
 | L10 处理流程 | `mode` `modes` `mode-of` `mode-name` `mode-prompt` `mode-tools` `flag` `flag-set` `enter-plan` `exit-plan` `grant` `grants` `ungrant` `accept` `accept-dir` `reject` |
 | provider 配置 | `llm` `llm-get` `llm-set` `llm-models` `llm-auto` `llm-import` `llm-export` |
+| 模型目录 | `catalog` `catalog-refresh` |
 
-完整栈效应见 `ravel-breve-spec-v1.0r.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
+完整栈效应见 `ravel-breve-spec-v1.0s.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
 （v1.0e 已把 SF-14…SF-35 冻结；v1.0f 加 REQ-52 处理流程层；v1.0g 加沙箱与默认工具；
 v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型列表；
 v1.0j 加插件 ABI 与 skills；v1.0k 加配置预设与启动装载；v1.0l 加预制的可发现性；
@@ -2241,6 +2306,7 @@ v1.0m 加 dsh 四个预置的复刻、`wire` 呈现层与正交的 plan）。
 | `examples/19-approve.breve` | 越界与审批：`grant` / `grants` / `ungrant`、`@Approve` 与裁决词（REQ-69）|
 | `examples/20-continue.sh` | 截断与空转：同一轮里续写、`RB_CONTINUE_MAX`、续到上限 → 60（REQ-70）|
 | `examples/21-budget.sh` | 输出预算：模型目录、显式覆盖、"额度真的用完" → 60（REQ-71）|
+| `examples/22-catalog.sh` | 模型目录：兜底 16384/128000、`est` 随语言变、`@on`/`@off @Start` 启停刷新（REQ-72）|
 | `examples/run-all.sh` | 一次跑完上面全部 |
 
 ```

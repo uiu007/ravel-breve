@@ -97,13 +97,14 @@
   (when (nil? f)
     (rb/raise (rb/exit-table :orchestration-base)
               (string "provider 未装载：" provider "（" key "）")))
-  # D-54：模型 / 端点 / 上限 / 温度都由 cap/config 按优先级解析；
+  # D-54：模型 / 端点 / 温度都由 cap/config 按优先级解析；
   # 显式 opts（能力层内部调用）优先，其次工作区配置、环境变量、缺省。
+  # REQ-71：`max-tokens` **不**在这里注入——precise 的额度要按「模型上限 + 上下文余量」
+  # 逐请求计算，所以留给 provider 调 `cap/llm-budget`（它自己也会看 opts 里的显式值）。
   (def opts2 (merge @{:provider provider
                       # `model` = "auto" → 先拉一次模型列表并按偏好定下来（D-66）
                       :model (if (= (cap/llm-model) "auto") (cap/llm-auto) (cap/llm-model))
                       :endpoint (cap/llm-endpoint)
-                      :max-tokens (cap/llm-max-tokens)
                       :temperature (cap/llm-temperature)}
                     (or opts @{})))
   (f messages opts2))

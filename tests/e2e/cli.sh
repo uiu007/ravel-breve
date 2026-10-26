@@ -299,8 +299,8 @@ check "cancel 词：栈顶 0" "0" "$(cat /tmp/rb-e2e-out)"
 # REQ-62 / REQ-63：provider 配置预设 —— 一键导入、导出、启动装载
 check_rc "预设：--preset 一键导入（provider）" 0 $RAVEL --preset opencode-go -e 'llm-get "provider"'
 check "预设：--preset 真的换了 provider" '"opencode"' "$(cat /tmp/rb-e2e-out)"
-check "预设：装的是仓库自带那份（max-tokens=1024）" "1024" \
-      "$($RAVEL --preset opencode-go -e 'llm-get "max-tokens"' 2>/dev/null | tail -1)"
+check "预设：装的是仓库自带那份（model=deepseek-v4.1-flash）" '"deepseek-v4.1-flash"' \
+      "$($RAVEL --preset opencode-go -e 'llm-get "model"' 2>/dev/null | tail -1)"
 check_rc "预设：RB_PRESET 环境变量等价" 0 env RB_PRESET=nvidia $RAVEL -e 'llm-get "provider"'
 check "预设：RB_PRESET 生效" '"nvidia"' "$(cat /tmp/rb-e2e-out)"
 check_rc "预设：名字不存在 → 40" 40 $RAVEL --preset nope -e '1'

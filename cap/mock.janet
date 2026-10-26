@@ -81,18 +81,23 @@
   (max 0 (- n 1)))
 
 (defn cap/mock-finish
-  "REQ-70：收尾块。`RB_MOCK_FINISH` = 逗号序列（如 `length,stop`）；`RB_MOCK_EMPTY` = 逗号序列的 0/1。"
-  [messages chars calls]
+  "REQ-70 / REQ-71：收尾块。`RB_MOCK_FINISH` = 逗号序列（如 `length,stop`）；
+   `RB_MOCK_EMPTY` = 逗号序列的 0/1。`:out` = 这次响应的正文 tokens（mock 用字符数），
+   `:max` = 这次请求实际拿到的额度——两者一起才能判「额度真的用完了」。"
+  [messages chars calls budget]
   (def idx (cap/mock-turn-idx messages))
   (def empty? (= "1" (cap/mock-list-at "RB_MOCK_EMPTY" idx)))
   (def reason (or (cap/mock-list-at "RB_MOCK_FINISH" idx) "stop"))
+  (def n (if empty? 0 chars))
   @{:finish reason
-    :chars (if empty? 0 chars)
-    :calls calls})
+    :chars n
+    :calls calls
+    :out n
+    :max (budget :max-tokens)})
 
 (defn cap/mock-chat-tools
   "工具模式：会话里还没有 role=tool 的消息 → 先给一次工具调用，否则给文本。"
-  [messages opts text]
+  [messages opts text budget]
   (def spec (cap/mock-parse-tool))
   (def has-tool-result
     (do
@@ -107,7 +112,7 @@
           (= step 0)
           (do (set step 1)
               # REQ-70：先交收尾块（截断/空转要靠它判）
-              (cap/mock-finish messages 0 1))
+              (cap/mock-finish messages 0 1 budget))
 
           (= step 1)
           (do (set step 2)
@@ -140,7 +145,7 @@
           (do
             (++ i)
             # REQ-70：收尾块先出，用量块后出（顺序与 cap/oai.janet 一致）
-            (cap/mock-finish messages (length (cap/chars text)) 0))
+            (cap/mock-finish messages (length (cap/chars text)) 0 budget))
 
           (= i (inc n))
           (do
@@ -159,6 +164,7 @@
   # REQ-70：`RB_MOCK_EMPTY` 命中的那一次响应返回**空正文**（模拟「推理吃光预算」）
   (when (= "1" (cap/mock-list-at "RB_MOCK_EMPTY" (cap/mock-turn-idx messages)))
     (set text ""))
-  (cap/mock-chat-tools messages opts text))
+  # REQ-71：mock 也要走同一套预算（`RB_MAX_TOKENS` 小到离谱时能测「额度用完」）
+  (cap/mock-chat-tools messages opts text (cap/llm-budget messages opts)))
 
 (rb/cap-put :llm/mock cap/mock-chat)

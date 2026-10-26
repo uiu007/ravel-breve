@@ -24,16 +24,17 @@
         found)))
 
 (defn cap/nv-body
-  [messages opts]
+  "请求体。`budget`（REQ-71）是 `cap/llm-budget` 算出的实际额度。"
+  [messages opts budget]
   (def enc (rb/cap-get :json/encode))
   (when (nil? enc)
     (rb/raise (rb/exit-table :orchestration-base) "能力层未提供 :json/encode"))
   (enc @{:model (opts :model)
          :messages messages
          :stream true
-         # D-54：温度与上限也走「工作区配置 > 环境变量 > 缺省」
+         # D-54：温度也走「工作区配置 > 环境变量 > 缺省」
          :temperature (or (opts :temperature) (cap/llm-temperature))
-         :max_tokens (or (opts :max-tokens) (cap/llm-max-tokens))
+         :max_tokens (budget :max-tokens)
          :top_p 1
          # REQ-48：工具表非空才带 `tools`（空表 = 纯文本对话）
          :tools (when (and (opts :tools) (> (length (opts :tools)) 0)) (opts :tools))}))
@@ -59,11 +60,14 @@
   (def post (rb/cap-get :http/post-lines))
   (when (nil? post)
     (rb/raise (rb/exit-table :orchestration-base) "能力层未提供 :http/post-lines（cap/http）"))
-  (def body (cap/nv-body messages opts))
+  # REQ-71：预算先算（模型目录 + 上下文余量），再进请求体与收尾块
+  (def budget (cap/llm-budget messages opts))
+  (when (os/getenv "RB_DEBUG_BUDGET") (eprintf "BUDGET| %q" budget))
+  (def body (cap/nv-body messages opts budget))
   (when (os/getenv "RB_DEBUG_BODY") (eprintf "BODY| %s" body))
   (def lines (post (or (opts :endpoint) (cap/llm-endpoint))
                    (cap/nv-headers key)
                    body))
-  (cap/oai-pull lines dec "NVIDIA"))
+  (cap/oai-pull lines dec "NVIDIA" (budget :max-tokens)))
 
 (rb/cap-put :llm/nvidia cap/nv-chat)

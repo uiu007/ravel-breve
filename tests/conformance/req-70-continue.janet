@@ -96,8 +96,3 @@
     (is (string? p) "不再是 nil")
     (is (string/find "直接动手" p) "写着「直接动手」")
     (is (string/find "{{cwd}}" p) "留着占位符，每轮现拼")))
-
-(deftest "REQ-70：max-tokens 缺省 8192（原 512，推理模型一秒吃光）"
-  (fn []
-    (def env (new-ws))
-    (is= 8192 (eval-top-in env "llm-get \"max-tokens\""))))

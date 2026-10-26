@@ -147,6 +147,11 @@
 #
 # 上限 = `RB_CONTINUE_MAX`（缺省 3，0 = 关闭）。用完就 60 并**点名退路**：
 # 推理内容与正文共用同一份 `max_tokens`（D-76 的病根）。
+#
+# REQ-71（D-77）：判「截断」按 pi 的 `isRecoverableLength` 口径——
+#   `length` **且** `out < max` 才算「可恢复的截断」（模型没写完，接着写就行）；
+#   `out >= max` 是「额度真的用完了」，再续写只是继续烧钱 → 立刻 60。
+#   `out` 缺（provider 没报 usage）时按可恢复处理：宁可往前推，不误杀。
 
 (defn rb/continue-max
   "一轮里最多续写几次：`RB_CONTINUE_MAX`（缺省 3；0 = 关闭这个自动行为）。"
@@ -402,8 +407,18 @@
           (def reason (string (get v :finish)))
           (def chars (or (get v :chars) 0))
           (def calls (or (get v :calls) 0))
+          (def out (get v :out))
+          (def lim (get v :max))
           (def truncated (= reason "length"))
+          # REQ-71：pi 的 isRecoverableLength —— `length` 且 `output < max`。
+          (def exhausted (and truncated (number? out) (number? lim) (>= out lim)))
           (put a :finish reason)
+          (when exhausted
+            (rb/raise (rb/exit-table :orchestration-base)
+                      (string "输出额度真的用完了：" (string out) "/" (string lim)
+                              " tokens（D-77）。这不是空转——模型把整份额度都花掉了"
+                              "（推理内容也算在里面）。调大 RB_MAX_TOKENS，"
+                              "或换模型目录里额度更大的模型。")))
           # 有工具调用就不续写：先把调用执行完（工具批紧跟着这个块）。
           (when (and (= calls 0) (or truncated (= chars 0)) (> (rb/continue-max) 0))
             (set it (rb/continue-turn! a opts truncated)))

@@ -53,9 +53,10 @@
           (when (and tcs (> (length tcs) 0)) tcs))))))
 
 (defn cap/oai-pull
-  "`lines` = 行源（`(fn [] → String|nil)`）；`dec` = JSON 解码；`label` = provider 名。
+  "`lines` = 行源（`(fn [] → String|nil)`）；`dec` = JSON 解码；`label` = provider 名；
+   `max-tokens` = 这次请求实际发出的输出额度（REQ-71 的收尾块要它）。
    返回取块函数（文本 / 工具批 / 用量块 / nil）。"
-  [lines dec label]
+  [lines dec label &opt max-tokens]
   # 工具调用的增量累积（REQ-48）：index → {:id , :name , :args}
   (def acc @{})
   # P2：OpenAI 兼容的 usage 帧（通常是 `choices: []` 的最后一帧）
@@ -132,12 +133,17 @@
                       (string label " 接口返回非 SSE 内容："
                               (string/slice line 0 (min 200 (length line)))))))))
     (cond
-      # REQ-70：先交收尾块（截断/空转要靠它判），再交用量，最后交工具批。
+      # REQ-70 / REQ-71：先交收尾块（截断/空转要靠它判），再交用量，最后交工具批。
+      # `:out` = 这次响应的 completion tokens（usage 帧里的 `completion_tokens`，可能没有），
+      # `:max` = 请求里发出的 `max_tokens`。两者凑齐才能按 pi 的口径判
+      # 「可恢复的截断（out < max）」还是「额度真的用完了（out >= max）」。
       (and (nil? out) (not finish-sent))
       (do (set finish-sent true)
           @{:finish (or finish "stop")
             :chars text-chars
-            :calls (length (keys acc))})
+            :calls (length (keys acc))
+            :out (when (dictionary? usage) (get usage "completion_tokens"))
+            :max max-tokens})
 
       (and usage (not usage-sent))
       (do (set usage-sent true) @{:usage usage})

@@ -54,7 +54,7 @@
     (pv-in (fn [env]
              (def t (eval-top-in env "llm-import \"opencode-go\""))
              (is= "opencode" (get t "provider") "自带预设的 provider")
-             (is= 1024 (get t "max-tokens") "自带预设的 max-tokens")
+             (is (nil? (get t "max-tokens")) "自带预设**不**钉 max-tokens（交给模型目录，D-77）")
              (is (string? (get t "model")) "自带预设给了具体模型名")))))
 
 (deftest "REQ-62：导入可叠加——后装的覆盖同键、不清掉别的键"

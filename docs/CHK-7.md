@@ -392,13 +392,13 @@ drain'; echo "退出码=$?"                    # → 60
 # ⑤ 关掉自动续写（回到 v1.0p 的行为）
 RB_CONTINUE_MAX=0 RB_MOCK_FINISH=length RB_MOCK_REPLY='写完了。' ./bin/ravel -e '...'
 
-# ⑥ 缺省值：8192 与 default 的系统提示
+# ⑥ 额度与 default 的系统提示（v1.0r 起额度归模型目录，见 §10）
 ./bin/ravel -e 'llm-get "max-tokens"'
 ./bin/ravel --modes | grep -A2 default       # 提示里含「直接动手」
 
 # ⑦ 例程与版本
 ./examples/run-all.sh
-./bin/ravel -v                               # ravel breve 1.0q · janet 1.42.1
+./bin/ravel -v                               # ravel breve 1.0r · janet 1.42.1
 ```
 
 | # | 手工动作 | 期望 |
@@ -406,10 +406,10 @@ RB_CONTINUE_MAX=0 RB_MOCK_FINISH=length RB_MOCK_REPLY='写完了。' ./bin/ravel
 | 1 | `finish = stop` | 只一段正文；`:continues 0`；会话 = user + assistant |
 | 2 | `RB_MOCK_FINISH=length,stop` | `:continues 1`；会话 = user + `:continue true` 的提示 + assistant |
 | 3 | `RB_MOCK_EMPTY=1,0` | `:continues 1`；提示里是「上一段没有正文」而不是「被截断」 |
-| 4 | 一直空转 | `60`；消息点名 `RB_MAX_TOKENS`（现值 8192）与 D-76 |
+| 4 | 一直空转 | `60`；消息点名 `RB_MAX_TOKENS`（现值按模型）与 D-76 |
 | 5 | `RB_CONTINUE_MAX=0` | `:continues 0`，一次响应就收尾（旧行为）|
 | 6 | 有工具调用 | **不续写**：先把工具批执行完（`calls > 0` 挡住误判）|
-| 7 | `make test` / `-v` | `446 + 162 + 20 + core-only` 全绿；`ravel breve 1.0q · janet 1.42.1` |
+| 7 | `make test` / `-v` | `455 + 162 + 21 + core-only` 全绿；`ravel breve 1.0r · janet 1.42.1` |
 
 ### 9.2 真跑一次（v1.0q 后的第一轮，OpenCode / `deepseek-v4.1-flash`）
 
@@ -428,11 +428,84 @@ OPENCODE_API_KEY=… RB_CONFIG=- RB_LLM=opencode RB_MODEL=deepseek-v4.1-flash \
 
 ### 9.3 仍然留给用户裁决
 
-- **续写到上限、但文件已经落地**：算成功还是失败？当前算 `60`（"没写完的一轮不许装作写完了"），
-  但产物其实在磁盘上——要不要改成"回一条 `@RoundDone 失败` 但仍把文本交回"？
+- ~~**续写到上限、但文件已经落地**：算成功还是失败？~~
+  **v1.0r 已按事实拆开**（D-77）：`out < max` = 可恢复的截断（续写）；`out >= max` = 额度真的用完
+  （直接 `60`，不再空转三轮）。"续到上限"因此在 v1.0r 里只有一种情形：续写额度用尽（`continues >= 3`）
+  而每次都没写满——那仍然 `60`。要不要给这种情形开一条"回 `@RoundDone 失败` 但交回文本"的路，
+  仍待裁决（与下一条相关）。
 - **零正文的续写提示要不要更强**：现在只说"不要输出推理过程"；要不要再加一句"直接回答或调工具"的实例？
 
 - **续写要不要跨轮**：本版不跨（`@RoundDone` 仍按"一轮一段"）；跨轮会让前端与存档的假设变形。
 - **别的 `finish_reason`**（如 `content_filter`）：当前只认 `length` 与"零正文"。
 - **收尾块要不要给前端**：现在只落进 `Stream` 的 `:finish` / `:finish-chars` / `:finish-calls`，
   事件集不动（仍 9 个）；要不要加第 10 个 `@Finish` 事件待定。
+
+---
+
+## 10. v1.0r 追记：输出预算（D-77 / REQ-71）
+
+### 10.1 六步人工验收
+
+```sh
+# ① 模型目录：目录内按模型上限，目录外兜底
+RB_LLM=opencode ./bin/ravel -e 'llm-get "max-tokens"'          # → 384000
+RB_LLM=mock     ./bin/ravel -e 'llm-get "max-tokens"'          # → 32768（兜底）
+RB_LLM=opencode RB_MODEL=deepseek-v4.1-flash-free ./bin/ravel -e 'llm-get "max-tokens"'   # → 32000
+
+# ② 显式压过目录
+RB_LLM=opencode RB_MAX_TOKENS=16000 ./bin/ravel -e 'llm-get "max-tokens"'    # → 16000
+
+# ③ 看每次请求算了多少（source: model / explicit / opts / fallback）
+RB_DEBUG_BUDGET=1 RB_LLM=opencode ./bin/ravel task.breve
+# BUDGET| @{:context-window 1000000 :est 811 :max-tokens 384000 :source :model}
+
+# ④ 额度真的用完 → 立刻 60（不再空转三次）
+RB_LLM=mock RB_MAX_TOKENS=1 RB_MOCK_FINISH=length RB_MOCK_REPLY='写完了。' ./bin/ravel -e 'agent "c" { }
+send say "写个 README"
+drain'; echo "退出码=$?"                                        # → 60，消息含 out/max
+
+# ⑤ 同样的截断但额度够 → 可恢复，照旧续写
+RB_LLM=mock RB_MAX_TOKENS=100000 RB_MOCK_FINISH=length,stop RB_MOCK_REPLY='写完了。' ./bin/ravel -e '…'
+
+# ⑥ 预设不再钉额度
+cat presets/opencode-go.json                                     # 只有 provider / model / temperature
+./examples/21-budget.sh
+```
+
+| # | 手工动作 | 期望 |
+|---|---|---|
+| 1 | `llm-get "max-tokens"` | 目录内模型 = 模型上限；目录外 = `32768` |
+| 2 | 显式 `RB_MAX_TOKENS` | 显式值胜出（仍按上下文夹紧）|
+| 3 | `RB_DEBUG_BUDGET=1` | 每次请求一行 `BUDGET|`，含 `:est` 与 `:source` |
+| 4 | `out >= max` | `60`，消息点名 `out/max`，**不续写** |
+| 5 | `out < max` 的 `length` | 续写一次，`@RoundDone` 成功 |
+| 6 | 预设 / 例程 | 预设无 `max-tokens`；`21-budget.sh` 五步全过 |
+
+### 10.2 真跑一次（v1.0r，**不设** `RB_MAX_TOKENS`）
+
+```sh
+mkdir -p /tmp/rbp3 && cd /tmp/rbp3
+OPENCODE_API_KEY=… RB_CONFIG=- RB_LLM=opencode RB_MODEL=deepseek-v4.1-flash   RB_DEBUG_BUDGET=1 ~/project/RavelBreve/bin/ravel task.breve
+```
+
+`task.breve`：用 `write` 建 `hello.py`、读回确认、`shell` 跑一遍。
+
+| 观测 | 结果 |
+|---|---|
+| 预算 | 5 次请求，每次 `:max-tokens 384000 :source :model` |
+| 收尾 | 每次 `finish stop`；`:continues 0` |
+| 产物 | `hello.py`（43 B），读回一致，输出 1…10 的平方 |
+| 退出码 | `0` |
+
+同一任务在 v1.0q（8192）下要么截断续写、要么 `60`；v1.0r 不设任何覆盖就跑通了。
+
+### 10.3 仍然留给用户裁决
+
+- **模型目录要不要自动更新**：现在是手写三行（`deepseek-v4.1-flash` / `-free` / `v3.2`）。
+  要不要像 `llm-auto` 那样拉一次 `GET /models`（OpenAI 形状不带 `context_window` / `max_tokens`，
+  得靠 provider 专有字段或人填）？当前不猜。
+- **目录外模型的兜底 `32768`**：够大但不精确；要不要按 provider 给一个更贴的数？
+- **`est` 的估算口径**：JSON 字节 ÷ 4 与 pi 同量级，但中文按字节算会偏保守（估多 → 夹紧更狠）。
+  要不要按字符数 + 字节数取大者？
+- **`stop` 但零正文仍续写**：有意偏离 pi（pi 安静收下）。实测救回过一轮；若哪天 provider 稳定了，
+  可以收掉这一条。

@@ -1,8 +1,8 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0q.md`**（轮次纪律）；
-`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0o.md` 为历史原文。
-状态：**M17**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
+依据规格：**`ravel-breve-spec-v1.0r.md`**（输出预算）；
+`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0q.md` 为历史原文。
+状态：**M19**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
 > v1.0d 新增 **REQ-47…REQ-51**（见文末）；**v1.0e 不新增 REQ**（只把 SF-14…SF-35 冻结，见其附录 I）；
@@ -13,6 +13,11 @@
 > **v1.0j 新增 REQ-60 / REQ-61**（插件装载卸载、插件编写 skills 的分层，见其 §4.17 与附录 O）；
 > **v1.0k 新增 REQ-62 / REQ-63**（配置预设的导入导出、启动装载，见其 §4.18 与附录 P）；
 > **v1.0l 新增 REQ-64**（预制的可发现性，见其 §4.19 与附录 Q）；
+> **v1.0r 新增 REQ-71**（模型目录 + `cap/llm-budget`：`min(想要的额度, max(1, 上下文窗口 - 估算输入 - 4096))`，
+> 额度来源「显式 > 模型上限 > 兜底 32768」；收尾块补 `:out` / `:max`，`length` 且 `out >= max` = 额度真的用完
+> → 立刻 `60`，`out < max` 才算可恢复的截断；预设不再钉 `max-tokens`。见其 §4.14 与附录 X），
+> 并随之修订 REQ-70（额度缺省改由模型目录决定、截断判定换 pi 口径）；
+> 依据规格 `ravel-breve-spec-v1.0r.md`，状态 **M19**。
 > **v1.0q 新增 REQ-70**（能力层交「收尾块」`@{:finish reason :chars n :calls n}`；
 > 编排层对 `finish = length` 或「无正文无调用」在**同一轮内续写**，`RB_CONTINUE_MAX` 封顶；
 > `max-tokens` 缺省 512 → 8192；`default` 模式补最小系统提示，见其 §4.14 与附录 W），
@@ -378,3 +383,11 @@ D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
 | REQ-69 | 策略拒绝带请求表（`:rb-denied` + `:rb-request`：`kind`/`path`/`dir`/`root`/`op`）；模型发起的调用先发 `@Approve`（载荷 `Request Stream`），钩子写 `:decision` + `:grant`；允许 → 登记临时授权并**重试一次**，拒绝 → `60` 且消息点名退路；授权带 `uses`（`nil` = 到工作区结束）、按目录段对齐、`reset` 清空；`grant`/`grants`/`ungrant` 与裁决词 `accept`/`accept-dir`/`reject`；`invoke` 不走审批；非交互默认拒绝；`@off @Approve` 回到旧行为 | `conformance/req-69-approve.janet`（10 条）、`e2e/cli.sh`（6 条：`grant` 后越界读 → 0、非交互 → 60、消息含 `grant`、自动批准 → 0、`invoke` → 60、`RB_SANDBOX=none` → 0）、`examples/19-approve.breve` |
 | REQ-17（修订）| 事件集 8 → **9**：新增 `@Approve`（第 9 个），缺省工作区就有默认审批钩子 | `unit/events.janet`、`unit/modes.janet`、`conformance/req-52-modes.janet`（事件数 9）；`conformance/req-69-approve.janet`（缺省钩子在位）|
 | REQ-53（修订）| 沙箱判定先查临时授权（`@Approve` / `grant`），命中即放行并消耗一次 `uses`；未命中才抛带标记的拒绝 | `conformance/req-69-approve.janet`（请求表字段、授权放行、`uses` 用完即销）|
+
+## v1.0r 新增 REQ（71）+ REQ-70 修订
+
+| REQ | 内容 | 测试 |
+|---|---|---|
+| REQ-71 | 输出额度按模型与上下文算：`cap/model-catalog`（`deepseek-v4.1-flash` = 1e6 上下文 / 384000 输出）+ `cap/llm-budget`（`want` = 显式 > 目录 > 兜底 32768，再 `min(want, max(1, window - est - 4096))`）；请求体的 `max_tokens` 取自它；收尾块补 `:out`（`usage.completion_tokens`）与 `:max`；`length` 且 `out >= max` → 立刻 `60` 并点名 `out/max`；目录外模型兜底 32768；`RB_DEBUG_BUDGET` 可观测 | `conformance/req-71-budget.janet`（8 条）、`unit/config.janet`（兜底 32768）、`unit/preset.janet`（自带预设不写 `max-tokens`）、`examples/21-budget.sh`（5 步）|
+| REQ-70（修订）| 续写判定换成 pi 的 `isRecoverableLength`：`length` 且 `out < max`（或 `out` 缺）才算可恢复；`out >= max` 不再空转三次，直接 `60`；`max-tokens` 8192 的缺省由 REQ-71 的模型目录接管（8192 只留在 REQ-70 的历史描述里）| 同上 + `conformance/req-70-continue.janet`（8 条，删掉「缺省 8192」那条）|
+| REQ-62 / REQ-63（修订）| 仓库自带预设只写 provider / model / temperature，不再钉 `max-tokens`（导入语义不变）| `unit/preset.janet`、`e2e/cli.sh`（预设验模型名）|

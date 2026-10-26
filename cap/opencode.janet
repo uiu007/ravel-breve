@@ -27,7 +27,8 @@
                        "x-opencode-session" (cap/oc-session opts)}))
 
 (defn cap/oc-body
-  [messages opts]
+  "请求体。`budget`（REQ-71）是 `cap/llm-budget` 算出的实际额度，不再直取配置值。"
+  [messages opts budget]
   (def enc (rb/cap-get :json/encode))
   (when (nil? enc)
     (rb/raise (rb/exit-table :orchestration-base) "能力层未提供 :json/encode"))
@@ -35,7 +36,7 @@
          :messages messages
          :stream true
          :temperature (or (opts :temperature) (cap/llm-temperature))
-         :max_tokens (or (opts :max-tokens) (cap/llm-max-tokens))
+         :max_tokens (budget :max-tokens)
          :tools (when (and (opts :tools) (> (length (opts :tools)) 0)) (opts :tools))
          # Go 的用量里带账单字段；不主动关掉，方便上层看 `opencode.allowance`
          :stream_options @{:include_usage true}}))
@@ -53,11 +54,14 @@
   (def post (rb/cap-get :http/post-lines))
   (when (nil? post)
     (rb/raise (rb/exit-table :orchestration-base) "能力层未提供 :http/post-lines（cap/http）"))
-  (def body (cap/oc-body messages opts))
+  # REQ-71：预算先算（模型目录 + 上下文余量），再进请求体与收尾块
+  (def budget (cap/llm-budget messages opts))
+  (when (os/getenv "RB_DEBUG_BUDGET") (eprintf "BUDGET| opts=%q %q" opts budget))
+  (def body (cap/oc-body messages opts budget))
   (when (os/getenv "RB_DEBUG_BODY") (eprintf "BODY| %s" body))
   (def lines (post (or (opts :endpoint) (cap/oc-url))
                    (cap/oc-headers key opts)
                    body))
-  (cap/oai-pull lines dec "OpenCode"))
+  (cap/oai-pull lines dec "OpenCode" (budget :max-tokens)))
 
 (rb/cap-put :llm/opencode cap/oc-chat)

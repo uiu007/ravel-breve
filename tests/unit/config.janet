@@ -28,7 +28,8 @@
     (is= "mock" (eval-top-in env "llm-get \"provider\""))
     # 缺省层：模型名与上限有内置缺省
     (is (string? (eval-top-in env "llm-get \"model\"")))
-    (is= 8192 (eval-top-in env "llm-get \"max-tokens\""))
+    # REQ-71：目录外的模型 → 兜底大值（mock 的缺省模型不在目录里）
+    (is= 32768 (eval-top-in env "llm-get \"max-tokens\""))
     # 工作区配置层覆盖环境变量
     (run-in env "llm-set \"nvidia\" \"provider\"")
     (is= "nvidia" (eval-top-in env "llm-get \"provider\""))

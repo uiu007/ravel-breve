@@ -4,8 +4,8 @@
 
 - **第一次用：读 `QUICKSTART.md`**（10 分钟，只讲跑起来要的那点东西）；完整手册 `docs/GUIDE.md`
 - 命令：`ravel`，脚本扩展名 `.breve`，提示符 `ravel> `
-- 规格（现行）：`ravel-breve-spec-v1.0q.md`（轮次纪律：REQ-70 收尾块 / 截断续写 / `max-tokens` 8192 / `default` 系统提示；越界与审批：REQ-69 请求表 / `@Approve` / 临时授权 `grant`；工具的参数：REQ-68 参数形状 / 别名 / 手误回给模型；模式的设定：REQ-67 工具与设定自洽；模式的复刻：REQ-65/66 + dsh 四个预置；预制的可发现性：REQ-64；配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
-  `ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0j.md` 保留为历史（不删改）
+- 规格（现行）：`ravel-breve-spec-v1.0r.md`（输出预算：REQ-71 模型目录 / 上下文夹紧 / `out < max` 才算可恢复的截断；轮次纪律：REQ-70 收尾块 / 截断续写 / `default` 系统提示；越界与审批：REQ-69 请求表 / `@Approve` / 临时授权 `grant`；工具的参数：REQ-68 参数形状 / 别名 / 手误回给模型；模式的设定：REQ-67 工具与设定自洽；模式的复刻：REQ-65/66 + dsh 四个预置；预制的可发现性：REQ-64；配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
+  `ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0q.md` 保留为历史（不删改）
 - 许可：**MIT**（见 `LICENSE`）；嵌入的 Janet 1.42.1 亦为 MIT（见 `vendor/janet`）
 - 规格反馈（缺陷/留白）：`docs/SPEC-FEEDBACK.md`
 - 开发计划与检查点：`PLAN.md`
@@ -36,7 +36,7 @@ bash tests/e2e/opencode.sh  # 真 provider 验收（OpenCode Zen/Go；无密钥�
 
 ```sh
 make clean && make
-./bin/ravel -v                         # ravel breve 1.0q · janet 1.42.1
+./bin/ravel -v                         # ravel breve 1.0r · janet 1.42.1
 ./bin/ravel --dump -e 'take 2 "abcde"' # (do (rb/push "abcde") (rb/push 2) (rb/take))
 ./bin/ravel -e 'take 2 "abcde"'        # "ab"
 ./bin/ravel -e 'map [ * 2 ] { 1 2 3 }' # (2 4 6)
@@ -179,7 +179,7 @@ mkdir -p ~/.config/ravel && cp presets/opencode-go.json ~/.config/ravel/config.j
 
 ```breve
 llm-import "opencode-go"        # 运行中导入 → 返回配置表（只覆盖预设里出现的键）
-llm-set 2048 "max-tokens"
+llm-set 16000 "max-tokens"     # 显式额度（仍按上下文夹紧，见下节）
 llm-export ".ravel.json"        # 存回去 → 4（写入项数）
 ```
 
@@ -192,7 +192,7 @@ llm-export ".ravel.json"        # 存回去 → 4（写入项数）
 - 一键配好 OpenCode Go：`tools/oc-setup.sh sk-xxxx`（密钥 → `secrets/opencode.key` chmod 600 +
   预设 → `~/.config/ravel/config.json`；已有密钥**拒绝覆盖**，`--force` 会先留 `.bak`）。
 
-## 处理流程模式（M14 / v1.0m，设定自洽于 v1.0n，参数自洽于 v1.0o，越界可裁决于 v1.0p，缺省带上系统提示于 v1.0q）
+## 处理流程模式（M14 / v1.0m，设定自洽于 v1.0n，参数自洽于 v1.0o，越界可裁决于 v1.0p，缺省带上系统提示于 v1.0q，额度归模型目录于 v1.0r）
 
 「一轮请求怎么被处理」是一份**数据**，不是实现细节。`mode` 装进去，`mode-of` 取出来。
 五个预制模式里，四个是 DeepSeek harness 预置的复刻：
@@ -228,9 +228,14 @@ flag "plan"                    # → true
   `grant "fs" "/tmp"` / `grants` / `ungrant`，CI 里 `@off @Approve` + `[ accept-dir ]` 自动点头；
   `invoke` 不走审批（照旧 `60`）。
 - **轮次不会静默结束**（M18 / v1.0q）：provider 每次响应收尾时交一块
-  `@{:finish :chars :calls}`；`finish = length`（被 `max_tokens` 截断）或「既无正文也无调用」
-  → **在同一轮里续写**（追加 `:continue true` 的提示、重发、接着吐），上限 `RB_CONTINUE_MAX`
-  （缺省 3）。用尽才 `60`，并点名「推理内容与正文共用这份预算」。`max-tokens` 缺省 512 → 8192。
+  `@{:finish :chars :calls :out :max}`；可恢复的截断（`length` 且 `out < max`）或
+  「既无正文也无调用」→ **在同一轮里续写**（追加 `:continue true` 的提示、重发、接着吐），
+  上限 `RB_CONTINUE_MAX`（缺省 3）。
+- **额度由模型决定，不由常数决定**（M19 / v1.0r）：每请求的 `max_tokens` 按 pi 的口径算——
+  模型目录的 `:max-tokens`（`deepseek-v4.1-flash` = 384000）与上下文余量夹紧
+  `min(want, max(1, window - est - 4096))`；显式 `RB_MAX_TOKENS` 仍优先。
+  `out >= max` = **额度真的用完** → 立刻 `60` 并点名 `out/max`（不再空转三次）；
+  预设不再钉 `max-tokens`。
 - **工具与设定自洽**（M15 / v1.0n）：`shell` 需要前置设定 `allow-shell`，它**随模式一起来**
   （五个预制模式都声明 `true`，不切模式也是配好的）——所以 `default` 下 `invoke "shell"` 开箱即用；
   关掉写 `flag-set false "allow-shell"` 或置 `RB_ALLOW_SHELL=0`，关掉后它连 wire 都不上。

@@ -1394,3 +1394,73 @@ pi agent 不这么干：它的 `isRecoverableLength` 把 `length` 当**可恢复
 `tests/unit/config.janet`（缺省 8192）；
 `tests/unit/modes.janet`（`default` 有系统提示、`mode-of` 往返仍相等）。
 规格：v1.0q §0 / §4.14（REQ-70）与附录 W。
+
+---
+
+## D-77（v1.0r）：额度是模型的性质，不是方言的常数（REQ-71）
+
+**问题是怎么暴露的。** 用户问：同一个 `deepseek-v4.1-flash`，在 pi agent 里干活正常，
+在本仓里"用不了"——让 agent 独立写一个 WebGL 项目，跑几分钟一个字没落地。
+
+**先排除的不是猜测。** 拿本仓的 CLI 真跑了三次（都走 OpenCode，同一把密钥）：
+
+| 任务 | `RB_MAX_TOKENS` | 结果 |
+|---|---|---|
+| 写 `fizzbuzz.py` | 8192 | **7 秒**，`finish stop`，`continues 0`，文件正确 |
+| 200 行 Canvas 粒子动画 + README | 393216 | **37 秒**，`finish stop`，`continues 1`（第一次响应零正文，续写救回）|
+| WebGL 演示（重） | 16000 | 文件写出了，收尾阶段连续零正文 → `60` |
+
+也就是说：**协议兼容没问题，模型没被"用不了"，是额度不够它思考**。
+
+**查 pi 发了什么。** `dist/core/model-runtime.js` 里每请求都过一遍
+
+```js
+maxTokens: clampMaxTokensToContext(model, context, options?.maxTokens ?? model.maxTokens)
+```
+
+`clampMaxTokensToContext` = `min(maxTokens, max(MIN_MAX_TOKENS=1, contextWindow - estimateContextTokens - CONTEXT_SAFETY_TOKENS=4096))`。
+而 `deepseek-v4.1-flash` 在 pi 的模型表里是 `contextWindow: 1e6` / `maxTokens: 384000`。
+所以 pi 发 **384000**，本仓发 **8192**（用户配置里甚至是 1024）。这个模型的
+`reasoning_content` 计入 completion tokens——额度差 46 倍，任务一重就只剩推理、没有正文。
+
+**决定（四条）。**
+
+1. **模型目录进能力层**（`cap/model-catalog`）：认识的模型带 `:context-window` / `:max-tokens`
+   （首版收 `deepseek-v4.1-flash` 1e6/384000、`-free` 2e5/32000、`deepseek-v3.2` 128000/65536）。
+   **目录外不猜上限**——猜错的方向有两个，宁可给一个够大的兜底 `32768`。
+2. **每请求算额度**（`cap/llm-budget`）：`want` = 调用方显式 > 工作区配置 / `RB_MAX_TOKENS` >
+   目录 > 兜底；再 `min(want, max(1, window - est - 4096))`。`est` 用「消息 + 工具表 JSON 字节 ÷ 4」，
+   与 pi 的估算同量级。窗口未知（`<= 0`）不夹紧。请求体里的 `max_tokens` 就是它。
+3. **截断按 pi 的 `isRecoverableLength` 判**：收尾块补 `:out`（`usage.completion_tokens`）与
+   `:max`（请求额度）。`length` 且 `out < max`（或 `out` 缺）→ 可恢复 → 同轮续写；
+   `length` 且 `out >= max` → **额度真的用完** → 立刻 `60`，点名 `out/max`。
+4. **预设不再钉额度**：`presets/*.json` 只留 provider / model / temperature。
+
+**为什么不再"多续几次"。** 额度真的用完时续写只会继续烧钱（每次都是 `out >= max`），
+pi 也不会重试这种情况。区别只在收尾：pi 安静收下，本仓 `60`——**非交互的方言需要一个裁判**，
+不然"写不下"和"写完了"在退出码上无法区分。这是唯一有意保留的偏离。
+
+**另一条有意保留的偏离。** `reason = "stop"` 且正文与调用都为 0：pi 会安静收下，
+本仓仍按 REQ-70 续写一次。理由是实测见过 provider 发一个空的前导帧（`/tmp/rbp2` 那次就是靠续写救回来的）。
+两处偏离都写进规格附录 X，免得下次有人把它当 bug 修掉。
+
+**踩到的坑。**
+
+- `cap/llm.janet` 的派发层本来就把解析好的 `max-tokens` 塞进 `opts`，预算层于是永远看到
+  `:source :opts`——既看不出"这个数从哪来"，也让"显式 > 目录 > 兜底"的三级判定形同虚设。
+  修法：派发层不再注入，留给 provider 现算。
+- 测试里 `eachp [k v] pairs` 遍历**数组**时拿到的是 `(下标, 元素)`，不是 `(键, 值)`——
+  第一版把 `[["RB_LLM" "mock"]]` 当表用，`(os/getenv 0)` 直接炸。表用 `eachp`，数组用 `each`。
+- `RB_MOCK_REPLY` 在测试引导里是 `abcdefgh`（8 字符），断言 `out/max` 不能写死 `5/1`；
+  改成 `"/1 tokens"` 这种与正文长度无关的片段。
+
+**实测（v1.0r 之后，OpenCode / `deepseek-v4.1-flash`，**不设** `RB_MAX_TOKENS`）。**
+
+`/tmp/rbp3`：让 agent 用 `write` 建 `hello.py`、读回确认、`shell` 跑一遍。**5 次 provider 请求，
+每次 `BUDGET| … :max-tokens 384000 :source :model`，`finish stop`，退出码 0**，
+`hello.py`（43 B）内容与输出都对。同一任务在 v1.0q 的 8192 下是"要么截断续写、要么 60"。
+
+**验收。** `tests/conformance/req-71-budget.janet` 八条；`tests/unit/config.janet`（兜底 32768）；
+`tests/unit/preset.janet`（自带预设不写 `max-tokens`）；`examples/21-budget.sh` 五步。
+`make test`：测试 455 全绿、端到端 162 全过、例程全过、core-only 通过。
+规格：v1.0r §0 / §4.14（REQ-71）与附录 X。

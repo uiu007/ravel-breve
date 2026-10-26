@@ -1,6 +1,5 @@
 {
   "provider": "opencode",
   "model": "deepseek-v4.1-flash",
-  "max-tokens": 1024,
   "temperature": 0.2
 }

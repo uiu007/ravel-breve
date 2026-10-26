@@ -65,7 +65,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0q · janet 1.42.1
+ravel breve 1.0r · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -194,7 +194,7 @@ show'
 | 差别 | 做法 |
 |---|---|
 | 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
-| 必须自称客户端 | `User-Agent: ravel-breve/1.0q`（**不许**用通用 SDK 名）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0r`（**不许**用通用 SDK 名）|
 | 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
 
 另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
@@ -218,7 +218,7 @@ $ make test-agent     # NVIDIA
 | `provider` | `RB_LLM` | `auto` | `nvidia` / `opencode` / `mock` / `auto`（`auto` = 有谁家的密钥就用谁，都没有则 `mock`） |
 | `model` | `RB_MODEL` | 按 provider：NVIDIA `meta/llama-3.2-11b-vision-instruct`，OpenCode `deepseek-v4.1-flash` | 真 provider 的模型名 |
 | `endpoint` | `RB_ENDPOINT` | 按 provider 的官方端点 | 兼容 OpenAI 形状的服务也能接；OpenCode 另可用 `RB_OC_BASE` 换基址 |
-| `max-tokens` | `RB_MAX_TOKENS` | `8192` | 单次响应上限（v1.0q 起从 512 提到 8192；推理型模型把 `reasoning_content` 也算在这份预算里）|
+| `max-tokens` | `RB_MAX_TOKENS` | 按模型（模型目录；目录外 `32768`）| 单次响应上限。**别当常数看**：v1.0r 起按模型上限与上下文余量逐请求算（§14.5.10）。推理型模型把 `reasoning_content` 也算在这份预算里 |
 | `temperature` | `RB_TEMPERATURE` | `0.2` | 采样温度 |
 | `headers` | `RB_HEADERS` | `@{}` | 自定义请求头（`Table` 或 `K:v,…` / JSON；**覆盖同名内置头**，见 §14.9）|
 
@@ -1582,14 +1582,85 @@ drain'
 | 环境变量 | 缺省 | 说明 |
 |---|---|---|
 | `RB_CONTINUE_MAX` | `3` | 一轮里最多续写几次；`0` = 关闭（回到 v1.0p 的行为）|
-| `RB_MAX_TOKENS` | `8192` | 单次响应上限（v1.0q 从 512 提到 8192）|
+| `RB_MAX_TOKENS` | 按模型 | 单次响应上限；显式设了就是显式，但仍会按上下文夹紧（§14.5.10）|
 
 用尽即 `60`，消息点名三件事：试了几次、`RB_MAX_TOKENS` 现值、病根
 （**推理内容与正文共用这份预算** → 调大或换非推理模型）。
 
+**什么时候它根本不续写？** 当这次截断是"额度真的用完了"（`out >= max`）——
+继续续写只会继续烧钱。判定与额度算法见下一节（v1.0r / REQ-71）。
+
 - **有工具调用就续写**：不。`calls > 0` 时先把调用执行完（工具批的 `chars` 本来就是 0，
   只看"没有正文"会误判成空转）。
 - **`@Chunk` 看不到收尾块**：它不是文本；要看结论读 `Stream` 的 `:finish` / `:finish-chars` / `:finish-calls`。
+
+---
+
+### 14.5.10 输出预算是怎么算的（v1.0r / REQ-71）
+
+v1.0q 把 `max-tokens` 缺省从 512 提到 8192，但真正的病根不是那个数：**别家 agent 不发常数**。
+pi agent 对每个模型发
+
+```
+clampMaxTokensToContext(model, context, options?.maxTokens ?? model.maxTokens)
+  = min(想要的额度, max(1, 上下文窗口 - 估算输入 tokens - 4096))
+```
+
+`deepseek-v4.1-flash` 在它的目录里是 **1e6 上下文 / 384000 输出**，所以它发 `384000`；
+而本仓发 8192（有些配置里是 1024）。推理型的 `reasoning_content` 计入 completion tokens，
+额度一小，正文就永远轮不到——这就是"跑了几分钟一个字没落地"。
+
+v1.0r 照抄这套：
+
+| 环节 | 规则 |
+|---|---|
+| 模型目录（`cap/model-catalog`）| 认识的模型带 `:context-window` / `:max-tokens`；目录外**不猜**，用兜底 `32768` |
+| 想要的额度（`want`）| 调用方显式 > 工作区配置 / `RB_MAX_TOKENS` > 目录的 `:max-tokens` > 兜底 |
+| 估算输入（`est`）| 消息 + 工具表 JSON 字节数 ÷ 4（与 pi 同量级）|
+| 夹紧 | `min(want, max(1, context-window - est - 4096))`；窗口未知（`<= 0`）不夹紧 |
+
+```console
+$ RB_LLM=opencode ./bin/ravel -e 'llm-get "max-tokens"'
+384000
+$ RB_LLM=opencode RB_MAX_TOKENS=16000 ./bin/ravel -e 'llm-get "max-tokens"'
+16000
+$ RB_LLM=mock ./bin/ravel -e 'llm-get "max-tokens"'   # 目录外的模型
+32768
+```
+
+想看每一次请求到底算了多少：
+
+```console
+$ RB_DEBUG_BUDGET=1 RB_LLM=opencode ./bin/ravel task.breve
+BUDGET| @{:context-window 1000000 :est 811 :max-tokens 384000 :source :model}
+```
+
+`source` = `:model`（按目录）/ `:explicit`（显式设过）/ `:opts`（调用方给的）/ `:fallback`（兜底）。
+
+注意分工：`llm-get "max-tokens"` 给的是**想要的额度**（不夹紧，便于看配置生效没），
+真正发出去的那个数在 `BUDGET|` 行的 `:max-tokens` 里（= 夹紧后的值）。
+
+#### 截断的判定也换了（pi 的 `isRecoverableLength`）
+
+收尾块多了两个字段：`:out`（`usage.completion_tokens`）与 `:max`（请求里的额度）。
+
+| 收尾事实 | 判定 | 行为 |
+|---|---|---|
+| `length` 且 `out < max`（或 `out` 缺）| **可恢复的截断** | 同一轮内续写（车轱辘还在转，只是被打断）|
+| `length` 且 `out >= max` | **额度真的用完** | 立刻 `60`，点名 `out/max`；不再空转三次 |
+| `stop` 且正文与调用都为空 | 偶发空帧 | 照旧续写一次（有意偏离 pi，实测救回过一轮）|
+
+```console
+$ RB_LLM=mock RB_MAX_TOKENS=1 RB_MOCK_FINISH=length RB_MOCK_REPLY='写完了。' ./bin/ravel -e 'agent "c" { }
+send say "写个 README"
+drain'
+ravel: 流失败：输出额度真的用完了：4/1 tokens（D-77）。这不是空转——模型把整份额度都花掉了……
+```
+
+#### 预设不再钉额度
+
+`presets/*.json` 只写 `provider` / `model` / `temperature`：额度归模型目录，
+配置里再写一个 1024 只会把病根抄进机器。要锁死就用 `RB_MAX_TOKENS` 或 `llm-set`。
 
 ---
 
@@ -1798,7 +1869,7 @@ mock.json  nvidia.json  opencode-go.json
 `presets/opencode-go.json` 长这样（**没有密钥**，密钥只从环境变量或 `secrets/*.key` 来）：
 
 ```json
-{ "provider": "opencode", "model": "deepseek-v4.1-flash", "max-tokens": 1024, "temperature": 0.2 }
+{ "provider": "opencode", "model": "deepseek-v4.1-flash", "temperature": 0.2 }
 ```
 
 #### 先看有什么（`--presets` / `--modes`，v1.0l）
@@ -1928,7 +1999,7 @@ $ tools/oc-setup.sh --local             # 不想写家目录：配置写 ./.rave
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0q · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0r · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -2137,7 +2208,7 @@ ravel> ()
 | L10 处理流程 | `mode` `modes` `mode-of` `mode-name` `mode-prompt` `mode-tools` `flag` `flag-set` `enter-plan` `exit-plan` `grant` `grants` `ungrant` `accept` `accept-dir` `reject` |
 | provider 配置 | `llm` `llm-get` `llm-set` `llm-models` `llm-auto` `llm-import` `llm-export` |
 
-完整栈效应见 `ravel-breve-spec-v1.0q.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
+完整栈效应见 `ravel-breve-spec-v1.0r.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
 （v1.0e 已把 SF-14…SF-35 冻结；v1.0f 加 REQ-52 处理流程层；v1.0g 加沙箱与默认工具；
 v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型列表；
 v1.0j 加插件 ABI 与 skills；v1.0k 加配置预设与启动装载；v1.0l 加预制的可发现性；
@@ -2168,6 +2239,8 @@ v1.0m 加 dsh 四个预置的复刻、`wire` 呈现层与正交的 plan）。
 | `examples/17-presets.sh` | 配置预设：`--preset` / `RB_PRESET` / 用户配置文件 / `llm-import` / `llm-export` |
 | `examples/18-modes.sh` | 处理流程模式：五个预置、wire（注册 ≠ 公示）、plan 正交、模式设定（REQ-67）|
 | `examples/19-approve.breve` | 越界与审批：`grant` / `grants` / `ungrant`、`@Approve` 与裁决词（REQ-69）|
+| `examples/20-continue.sh` | 截断与空转：同一轮里续写、`RB_CONTINUE_MAX`、续到上限 → 60（REQ-70）|
+| `examples/21-budget.sh` | 输出预算：模型目录、显式覆盖、"额度真的用完" → 60（REQ-71）|
 | `examples/run-all.sh` | 一次跑完上面全部 |
 
 ```

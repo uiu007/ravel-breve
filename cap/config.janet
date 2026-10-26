@@ -223,9 +223,91 @@
     (string/slice e 0 (- (length e) (length suffix)))
     e))
 
-(defn cap/llm-max-tokens
+# ---- 输出预算（REQ-71 / D-77：全面对齐 pi 的口径）------------------------
+#
+# pi 的每请求预算是
+#   `clampMaxTokensToContext(model, context, options?.maxTokens ?? model.maxTokens)`
+# 也就是：`min(想要的额度, max(1, 上下文窗口 - 估算输入 tokens - 4096))`。
+# 它家的模型目录里 `deepseek-v4.1-flash` 是 1e6 上下文 / 384000 输出，
+# 所以实际发出去的是 384000——而 v1.0q 我们发 8192。
+# 推理型模型的 `reasoning_content` 算在 completion tokens 里，额度太小 =
+# 正文永远没机会出现（D-76 的 60 就是这么来的）。
+
+(def cap/min-max-tokens 1)              # pi: MIN_MAX_TOKENS
+(def cap/context-safety-tokens 4096)    # pi: CONTEXT_SAFETY_TOKENS
+(def cap/llm-max-tokens-default 32768)  # 模型不在目录里时的保守大值（D-77）
+
+(def cap/model-catalog
+  "只收 pi 的模型目录里能核对到数字的模型（`:context-window` / `:max-tokens`）。
+   目录外的模型不猜上限，走 `cap/llm-max-tokens-default`。"
+  @{"deepseek-v4.1-flash" @{:context-window 1000000 :max-tokens 384000}
+    "deepseek-v4.1-flash-free" @{:context-window 200000 :max-tokens 32000}
+    "deepseek-v3.2" @{:context-window 128000 :max-tokens 65536}})
+
+(defn cap/model-budget
+  "模型 → `@{:context-window n :max-tokens n}`；不认识就是两个 0（= 未知）。"
+  [model]
+  (or (get cap/model-catalog (string model))
+      @{:context-window 0 :max-tokens 0}))
+
+(defn cap/llm-max-tokens-explicit
+  "显式配置的额度（工作区配置 > `RB_MAX_TOKENS`）；没设 → nil。"
   []
-  (cap/cfg-num "max-tokens" "RB_MAX_TOKENS" 8192))
+  (def v (cap/cfg "max-tokens" "RB_MAX_TOKENS" nil))
+  (when (not (nil? v))
+    (cap/cfg-num "max-tokens" "RB_MAX_TOKENS" cap/llm-max-tokens-default)))
+
+(defn cap/llm-max-tokens
+  "生效的输出预算（**未**按上下文裁剪）：显式 > 模型上限 > 缺省。"
+  []
+  (def e (cap/llm-max-tokens-explicit))
+  (if (not (nil? e))
+    e
+    (do
+      (def mb ((cap/model-budget (cap/llm-model)) :max-tokens))
+      (if (> mb 0) mb cap/llm-max-tokens-default))))
+
+(defn cap/json-len
+  "JSON 编码后的字节数；编不出来就当 0。"
+  [enc x]
+  (def p (protect (enc x)))
+  (if (and (get p 0) (string? (get p 1))) (length (get p 1)) 0))
+
+(defn cap/est-tokens
+  "粗估这次请求的**输入** tokens：JSON 字节数 / 4（与 pi 的估算同量级）。"
+  [messages tools]
+  (def enc (rb/cap-get :json/encode))
+  (if (nil? enc)
+    0
+    (math/ceil (/ (+ (cap/json-len enc messages)
+                     (if tools (cap/json-len enc tools) 0))
+                  4))))
+
+(defn cap/clamp-max-tokens
+  "pi 的 `clampMaxTokensToContext`：窗口未知（<= 0）就原样；否则留出输入与安全余量。"
+  [want window est]
+  (if (<= window 0)
+    (max cap/min-max-tokens want)
+    (min want (max cap/min-max-tokens (- window est cap/context-safety-tokens)))))
+
+(defn cap/llm-budget
+  "一次请求的输出预算：`@{:max-tokens n :context-window w :est e :source k}`。
+   `source` = `:opts` / `:explicit` / `:model` / `:fallback`（预算从哪来）。"
+  [messages opts]
+  (def model (string (or (opts :model) (cap/llm-model))))
+  (def b (cap/model-budget model))
+  (def explicit (or (opts :max-tokens) (cap/llm-max-tokens-explicit)))
+  (def mw (b :max-tokens))
+  (def want (or explicit (if (> mw 0) mw cap/llm-max-tokens-default)))
+  (def est (cap/est-tokens messages (opts :tools)))
+  @{:max-tokens (cap/clamp-max-tokens want (b :context-window) est)
+    :context-window (b :context-window)
+    :est est
+    :source (cond
+              (opts :max-tokens) :opts
+              explicit :explicit
+              (> mw 0) :model
+              :fallback)})
 
 (defn cap/llm-temperature
   []

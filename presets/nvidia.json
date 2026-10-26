@@ -1,6 +1,5 @@
 {
   "provider": "nvidia",
   "model": "meta/llama-3.2-11b-vision-instruct",
-  "max-tokens": 512,
   "temperature": 0.2
 }

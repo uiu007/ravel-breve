@@ -63,12 +63,18 @@
     nil)
   (set proc (os/spawn ["bash" "-c" script] :p))
   (fn []
+    # 只在**还没结束**时开管道：阻塞到子进程打开写端。
+    # 结束后（`exit-code` 已定、FIFO 已删）再被调用一律当 EOF——REQ-70 的续写
+    # 会让上层在「收尾块之后再取一次」，这里必须是幂等的 nil 而不是 `file/read nil`。
+    (when (and (nil? fh) (nil? exit-code))
+      (set fh (file/open fifo :r)))
     (if (nil? fh)
-      (set fh (file/open fifo :r)))  # 阻塞到子进程打开写端
-    (def line (file/read fh :line))
-    (if (nil? line)
       (do (finish) nil)
-      (string/trimr line))))
+      (do
+        (def line (file/read fh :line))
+        (if (nil? line)
+          (do (finish) nil)
+          (string/trimr line))))))
 
 (rb/cap-put :http/post-lines cap/http-post-lines)
 

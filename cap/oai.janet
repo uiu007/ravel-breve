@@ -65,14 +65,18 @@
   (var finish nil)
   (var finish-sent false)
   (var text-chars 0)
+  # REQ-70：行源到 EOF 之后**不许再调**它（HTTP 行流结束后 FIFO 已删，再读会炸）。
+  # 收尾块可能恰好在 EOF 那次由下方 `cond` 补交，所以 pull 会被再进一次——
+  # 用 `eof` 记住，第二次进来自动短路。
+  (var eof false)
   (defn pull []
     (var go true)
     (var out nil)
     (while go
-      (def line (lines))
+      (def line (if eof nil (lines)))
       (when (os/getenv "RB_DEBUG_SSE") (eprintf "SSE| %s" (if (nil? line) "<eof>" line)))
       (cond
-        (nil? line) (set go false)                       # 流结束
+        (nil? line) (do (set eof true) (set go false))   # 流结束（记住，别再问）
         (empty? line) nil                                # SSE 空行
         (string/has-prefix? "data:" line)                # SSE 数据行
         (do

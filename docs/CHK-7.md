@@ -411,7 +411,26 @@ RB_CONTINUE_MAX=0 RB_MOCK_FINISH=length RB_MOCK_REPLY='写完了。' ./bin/ravel
 | 6 | 有工具调用 | **不续写**：先把工具批执行完（`calls > 0` 挡住误判）|
 | 7 | `make test` / `-v` | `446 + 162 + 20 + core-only` 全绿；`ravel breve 1.0q · janet 1.42.1` |
 
-### 9.2 仍然留给用户裁决
+### 9.2 真跑一次（v1.0q 后的第一轮，OpenCode / `deepseek-v4.1-flash`）
+
+```sh
+mkdir -p ~/project/x && cd ~/project/x
+OPENCODE_API_KEY=… RB_CONFIG=- RB_LLM=opencode RB_MODEL=deepseek-v4.1-flash \
+  RB_MAX_TOKENS=16000 ~/project/RavelBreve/bin/ravel task.breve
+```
+
+| 轮次 | 结果 |
+|---|---|
+| 第 1 轮（1m30s）| `流失败：bad slot #0, expected core/file, got nil` —— REQ-70 自己捅的坑：行源 EOF 之后又去问 HTTP 行流（FIFO 已删）。修法见 D-76「踩到的坑」，回归测试 `tests/unit/oai.janet` |
+| 第 2 轮（2m56s）| 先截断两次（续写生效）→ **写出 `index.html` 8.7 KB + `README.md` 3.7 KB**；headless Chromium 打开无控制台报错，状态行「WebGL 已绘制：400×300」；收尾阶段连续三次零正文 → 用尽续写 → `60`，消息点名 `RB_MAX_TOKENS` 与 D-76 |
+
+结论：「静默收尾」消失，换成**说得出病根**的 `60`。剩下的病根在模型（推理吃掉预算），不在编排层。
+
+### 9.3 仍然留给用户裁决
+
+- **续写到上限、但文件已经落地**：算成功还是失败？当前算 `60`（"没写完的一轮不许装作写完了"），
+  但产物其实在磁盘上——要不要改成"回一条 `@RoundDone 失败` 但仍把文本交回"？
+- **零正文的续写提示要不要更强**：现在只说"不要输出推理过程"；要不要再加一句"直接回答或调工具"的实例？
 
 - **续写要不要跨轮**：本版不跨（`@RoundDone` 仍按"一轮一段"）；跨轮会让前端与存档的假设变形。
 - **别的 `finish_reason`**（如 `content_filter`）：当前只认 `length` 与"零正文"。

@@ -1372,6 +1372,25 @@ pi agent 不这么干：它的 `isRecoverableLength` 把 `length` 当**可恢复
   而 `(os/setenv k nil)` 才是删除。第一版还原循环又错写成 `eachp` 遍历 `vars`（还原成刚设的值），
   于是三个测试互相污染，排查了三轮才对——**还原要遍历 `old` 的键，值取 `(get old k)`**。
 
-**验收。** `tests/conformance/req-70-continue.janet` 九条；`tests/unit/config.janet`（缺省 8192）；
+**实测（v1.0q 之后第一次真跑，OpenCode / `deepseek-v4.1-flash`，`RB_MAX_TOKENS=16000`）。**
+
+任务是"写一个小型 WebGL 演示（`index.html` + `README.md`）"。两轮：
+
+1. **第一轮 1m30s 崩了**：`流失败：bad slot #0, expected core/file, got nil`。查下来是 REQ-70 自己捅出来的坑——
+   有的 provider 不发 `finish_reason` 帧，`cap/oai.janet` 就在**行源 EOF 那次**补交收尾块；
+   上层拿到收尾块后还会再取一次，于是又去问已经删掉 FIFO 的 HTTP 行源 → `file/read nil`。
+   修法两条：取块循环用 `eof` 记住行源已尽、之后一行都不再问（`cap/oai.janet`）；
+   行流读取器对"已结束"幂等返回 nil（`cap/http.janet`）。回归测试 `tests/unit/oai.janet` 两条。
+2. **第二轮 2m56s**：先被截断两次（自动续写生效），**写出了 `index.html`（8.7 KB）与 `README.md`（3.7 KB）**，
+   headless Chromium 打开无控制台报错、状态行写着"WebGL 已绘制：400×300"；
+   但收尾阶段连续三次"零正文"→ 用尽续写 → `60`，消息如实点名 `RB_MAX_TOKENS` 与 D-76。
+
+**结论**：「静默收尾」没了（这是本版目标），换成了一条**说得出病根**的 `60`。
+剩下的失败不是编排层能修的：那是模型把一整份额度花在推理上。看着像"半成功"，
+但按 REQ-70 的口径它就该响——**没写完的一轮不许装作写完了**。
+（"续写到上限、但文件已经落地"该算成功还是失败，是一个待用户裁决的策略问题，见 CHK-7 §9.2。）
+
+**验收。** `tests/conformance/req-70-continue.janet` 九条；`tests/unit/oai.janet` 两条（行源 EOF 幂等）；
+`tests/unit/config.janet`（缺省 8192）；
 `tests/unit/modes.janet`（`default` 有系统提示、`mode-of` 往返仍相等）。
 规格：v1.0q §0 / §4.14（REQ-70）与附录 W。

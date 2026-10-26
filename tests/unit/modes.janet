@@ -61,7 +61,7 @@
     (is (not (nil? (val-in env (fn [] (rb/tool-get "eval"))))))
     (is= 0 (run-in-exit env "mode \"default\""))
     (is (nil? (val-in env (fn [] (rb/tool-get "eval")))) "default 没有声明 eval → 撤掉")
-    (is (nil? (ws :mode-prompt)) "default 不注入系统提示")))
+    (is (= rb/default-system (ws :mode-prompt)) "default 注入最小系统提示（REQ-70）")))
 
 (deftest "D-59：用户 @on 出来的钩子能被 mode-of 收成模式，再 mode 回去"
   (fn []
@@ -135,7 +135,8 @@
   (fn []
     (def env (new-ws))
     (is= "default" (eval-top-in env "mode-of\nmode-name"))
-    (is= nil (eval-top-in env "mode-of\nmode-prompt") "default 无提示")
+    (is= rb/default-system (eval-top-in env "mode-of\nmode-prompt")
+         "default 的最小系统提示（REQ-70）")
     # D-61 / D-72：缺省工作区就有能力层装好的六个工具
     (is= (tup ["edit" "glob" "grep" "read" "shell" "write"])
          (tup (eval-top-in env "mode-of\nmode-tools")))

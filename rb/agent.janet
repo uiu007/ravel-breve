@@ -150,6 +150,8 @@
               (string "会话为空，无法发起：" (a :label))))
   # `:session` = 一次会话的稳定标识（D-64）：OpenCode Go 用 `x-opencode-session`
   # 做路由与提示缓存，必须**跨轮稳定**、且不因请求不同而变。缺省 = agent 标签。
+  # REQ-70：续写计数按**轮**重置（一轮 = 一次 send/resend/bcast）
+  (put a :continues 0)
   (def opts @{:label (a :label) :agent a :session (string (a :label))})
   (when rb/tool-hooks
     (def defs ((rb/tool-hooks :defs)))

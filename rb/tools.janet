@@ -136,6 +136,51 @@
     (string v)
     (enc v)))
 
+# ---- 续写（REQ-70 / D-76）------------------------------------------------
+#
+# 一轮不该被「模型没写完」干掉。pi agent 的做法是把 `finish_reason = length`
+# 当**可恢复**的收尾（isRecoverableLength → 一次恢复重试），而不是当结论。
+# 这里做同一件事，但更窄：**同一轮内续写**，不重发、不重建流——
+#
+#   收尾块（cap/oai.janet）→ `length`（被输出上限截断）或「既无正文也无调用」
+#   → 追加一条带 `:continue true` 的 user 提示 → 再发一次请求 → 同一个流接着吐。
+#
+# 上限 = `RB_CONTINUE_MAX`（缺省 3，0 = 关闭）。用完就 60 并**点名退路**：
+# 推理内容与正文共用同一份 `max_tokens`（D-76 的病根）。
+
+(defn rb/continue-max
+  "一轮里最多续写几次：`RB_CONTINUE_MAX`（缺省 3；0 = 关闭这个自动行为）。"
+  []
+  (def v (os/getenv "RB_CONTINUE_MAX"))
+  (def p (when v (protect (scan-number v))))
+  (if (and p (get p 0)) (max 0 (math/floor (get p 1))) 3))
+
+(defn rb/continue-turn!
+  "续写一次：记数、追加提示、重发请求。返回新的取块函数（超限则 60）。"
+  [a opts truncated]
+  (def maxc (rb/continue-max))
+  (def n (or (a :continues) 0))
+  (when (>= n maxc)
+    (rb/raise (rb/exit-table :orchestration-base)
+              (string "续写 " maxc " 次仍未收尾（"
+                      (if truncated "每段都被输出上限截断" "每段都没有正文") "）。"
+                      "要么调大 RB_MAX_TOKENS（现在 "
+                      (string (rb/config-get "max-tokens")
+                              (if (os/getenv "RB_MAX_TOKENS") "" "，内置缺省"))
+                      "），"
+                      "要么换非推理模型：推理内容与正文共用这份预算（D-76）。")))
+  (put a :continues (inc n))
+  (rb/agent-append! a @{:role "user"
+                         :continue true
+                         :content (if truncated
+                                    "（上一段回复被输出上限截断了。）从断点接着做完，不要重复已经写过的部分。"
+                                    "（上一段没有正文。）直接调用工具或写正文，不要输出推理过程。")})
+  (def it (rb/llm-chat (rb/messages-of a) opts))
+  (when (not (function? it))
+    (rb/raise (rb/exit-table :orchestration-base)
+              (string "provider 必须返回取块函数，得到 " (type it))))
+  it)
+
 (defn rb/tool-call-new
   "把 provider 交来的一条调用规整成内部结构。"
   [a call]
@@ -350,6 +395,19 @@
         # 注意：带 `:tool-calls` 的批要先执行工具，所以这个分支必须排在它后面判。
         (and (table? v) (get v :usage) (not (get v :tool-calls)))
         (do (set out v) (set go false))
+
+        # REQ-70：一次响应的收尾块。截断或空转 → 同一轮里续写（不产出块，接着拉）。
+        (and (table? v) (get v :finish))
+        (do
+          (def reason (string (get v :finish)))
+          (def chars (or (get v :chars) 0))
+          (def calls (or (get v :calls) 0))
+          (def truncated (= reason "length"))
+          (put a :finish reason)
+          # 有工具调用就不续写：先把调用执行完（工具批紧跟着这个块）。
+          (when (and (= calls 0) (or truncated (= chars 0)) (> (rb/continue-max) 0))
+            (set it (rb/continue-turn! a opts truncated)))
+          nil)
 
         (table? v)
         (do

@@ -122,6 +122,16 @@
               (rb/usage-add! (chunk :usage))
               (rb/stream-next! s))
 
+            # REQ-70：收尾块（每次响应一次）——记下 `finish_reason` / 正文长度 / 调用数。
+            # 续写判定在 `rb/tool-loop`（有 agent 与消息的地方）；流里只记账，
+            # 且**不发** @Chunk 也不关闭。
+            (and (dictionary? chunk) (chunk :finish))
+            (do
+              (put s :finish (chunk :finish))
+              (put s :finish-chars (or (chunk :chars) 0))
+              (put s :finish-calls (or (chunk :calls) 0))
+              (rb/stream-next! s))
+
             (rb/raise (rb/exit-table :runtime-type)
                       (string "取块函数必须返回 String、nil 或用量块，得到 " (type chunk)))))))
 

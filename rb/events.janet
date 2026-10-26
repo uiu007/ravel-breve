@@ -76,6 +76,10 @@
     "@Toolcall" @[rb/default-toolcall-thunk]
     "@Approve" @[rb/default-approve-thunk]})
 
+# REQ-70：`default` 模式自 v1.0q 起带一句系统提示。`ws-new` 在本文件里先定义，
+# 那时 `rb/default-system` 还不存在（模式在 rb/modes.janet），所以经间接层取（D-29）。
+(var rb/mode-prompt-default nil)
+
 (defn rb/ws-new
   "新建一个工作区状态（REQ-30：字典 + 钩子 + 活 agent + 本轮 stream 列表）。
    栈不在这里——它是 env 的 `:rb-stack`（同一工作区的「变量」那半）。"
@@ -83,7 +87,7 @@
   (def w @{:dict @{}
     :hooks (rb/ws-default-hooks)
     :mode "default"      # D-59：当前处理流程（模式）
-    :mode-prompt nil     # 该模式要求注入的 system 提示（nil = 不注入）
+    :mode-prompt rb/mode-prompt-default   # 该模式要求注入的 system 提示（nil = 不注入）
     :flags (table/clone rb/flag-defaults)   # 历史标记开关（默认全开）
     :agents @[]
     :tools @{}     # REQ-48：工具表（名字 → 描述 + 引号）

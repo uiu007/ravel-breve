@@ -65,7 +65,7 @@ $ make test         # 单元 + 符合性 + 端到端（mock，全离线）
 
 ```
 $ ./bin/ravel -v
-ravel breve 1.0p · janet 1.42.1
+ravel breve 1.0q · janet 1.42.1
 
 $ ./bin/ravel -h
 用法：
@@ -137,6 +137,9 @@ $ RB_LLM=mock ./bin/ravel examples/01-stack.breve
 
 - 缺省回复：`"回声：<最后一条消息内容>"`；用 `RB_MOCK_REPLY` 换成固定串；
   用 `RB_MOCK_TOOL` 让它装模作样发起一次工具调用（测工具循环用）。
+- 还能演「被截断」与「空转」（REQ-70）：`RB_MOCK_FINISH=length,stop` 让第 1 次响应报截断、
+  第 2 次正常；`RB_MOCK_EMPTY=1,0` 让第 1 次响应正文为空。两者都是**逗号序列**，
+  第 n 次响应用第 n 项，越界用最后一项。
 - 流式仍然是流式：长回复按 UTF-8 边界切成几块（`@Chunk` 钩子照常触发），
   所以「钩子 / 合并 / 压缩 / 重试」全都能在 mock 上测。
 - **为什么例程都用它**：文档和测试要**可照抄的输出**。真模型每次措辞都不同，
@@ -191,7 +194,7 @@ show'
 | 差别 | 做法 |
 |---|---|
 | 端点 | `https://opencode.ai/zen/go/v1/chat/completions`；`RB_OC_BASE` 可换基址（给到 `/chat/completions` 也行）|
-| 必须自称客户端 | `User-Agent: ravel-breve/1.0p`（**不许**用通用 SDK 名）|
+| 必须自称客户端 | `User-Agent: ravel-breve/1.0q`（**不许**用通用 SDK 名）|
 | 必须带会话头 | `x-opencode-session`，一次会话一个稳定值（取自 agent 标签，可用 `RB_OC_SESSION` 覆盖）；缺了会被 `MissingSessionID` 拒掉 |
 
 另外：它的增量里带 `reasoning_content`（思考过程），**只取 `content`**——思考不进正文、
@@ -215,7 +218,7 @@ $ make test-agent     # NVIDIA
 | `provider` | `RB_LLM` | `auto` | `nvidia` / `opencode` / `mock` / `auto`（`auto` = 有谁家的密钥就用谁，都没有则 `mock`） |
 | `model` | `RB_MODEL` | 按 provider：NVIDIA `meta/llama-3.2-11b-vision-instruct`，OpenCode `deepseek-v4.1-flash` | 真 provider 的模型名 |
 | `endpoint` | `RB_ENDPOINT` | 按 provider 的官方端点 | 兼容 OpenAI 形状的服务也能接；OpenCode 另可用 `RB_OC_BASE` 换基址 |
-| `max-tokens` | `RB_MAX_TOKENS` | `512` | 本轮回复上限 |
+| `max-tokens` | `RB_MAX_TOKENS` | `8192` | 单次响应上限（v1.0q 起从 512 提到 8192；推理型模型把 `reasoning_content` 也算在这份预算里）|
 | `temperature` | `RB_TEMPERATURE` | `0.2` | 采样温度 |
 | `headers` | `RB_HEADERS` | `@{}` | 自定义请求头（`Table` 或 `K:v,…` / JSON；**覆盖同名内置头**，见 §14.9）|
 
@@ -1553,6 +1556,43 @@ ravel: 流失败：工具失败：read：沙箱拒绝（根 = …）：/tmp/rb-g
 
 ---
 
+### 14.5.9 轮次纪律：截断与空转会在同一轮里续写（REQ-70）
+
+**问题**：推理型模型（`deepseek-v4.1-flash` 这类）把 `max_tokens` 全花在 `reasoning_content` 上，
+正文一个字没有，`finish_reason = "length"`。若把它当"说完了"，一轮就**静默结束**——
+表现是"跑了几分钟什么都没写"。
+
+**做法**：能力层每次响应收尾时交一个**收尾块**（数据，不是文本）：
+
+```
+@{:finish reason :chars n :calls n}      # reason = "stop" / "length" / …；chars = 正文长度
+```
+
+编排层据此判断：`calls = 0` 且（`reason = "length"` 或 `chars = 0`）→ **在同一轮内续写**：
+追加一条带 `:continue true` 的 user 提示、重发一次请求、流接着吐（不重建流、不重发 `@Start`）。
+
+```
+$ RB_MOCK_FINISH=length,stop RB_LLM=mock ./bin/ravel -e 'agent "c" { }
+dup
+send say "hi"
+drain'
+# 会话里会出现一条 :continue true 的 user 提示 + 第二段回复
+```
+
+| 环境变量 | 缺省 | 说明 |
+|---|---|---|
+| `RB_CONTINUE_MAX` | `3` | 一轮里最多续写几次；`0` = 关闭（回到 v1.0p 的行为）|
+| `RB_MAX_TOKENS` | `8192` | 单次响应上限（v1.0q 从 512 提到 8192）|
+
+用尽即 `60`，消息点名三件事：试了几次、`RB_MAX_TOKENS` 现值、病根
+（**推理内容与正文共用这份预算** → 调大或换非推理模型）。
+
+- **有工具调用就续写**：不。`calls > 0` 时先把调用执行完（工具批的 `chars` 本来就是 0，
+  只看"没有正文"会误判成空转）。
+- **`@Chunk` 看不到收尾块**：它不是文本；要看结论读 `Stream` 的 `:finish` / `:finish-chars` / `:finish-calls`。
+
+---
+
 ### 14.6 默认工具包（`read` / `write` / `edit` / `grep` / `glob` / `shell`）
 
 能力层（`cap/tools.janet`）建工作区时就装好六个工具，所以 `invoke` 直接能用，
@@ -1888,7 +1928,7 @@ $ tools/oc-setup.sh --local             # 不想写家目录：配置写 ./.rave
 
 ```
 $ ./examples/10-serve.sh
-{"protocol":1,"type":"hello","version":"ravel breve 1.0p · janet 1.42.1"}
+{"protocol":1,"type":"hello","version":"ravel breve 1.0q · janet 1.42.1"}
 {"ok":true,"stack":["@{:kind :agent :label \"c\" … :turn 0}"],"type":"result"}
 {"n":0,"stream":"c","text":"回声","type":"chunk"}
 {"n":1,"stream":"c","text":"：你","type":"chunk"}
@@ -2097,7 +2137,7 @@ ravel> ()
 | L10 处理流程 | `mode` `modes` `mode-of` `mode-name` `mode-prompt` `mode-tools` `flag` `flag-set` `enter-plan` `exit-plan` `grant` `grants` `ungrant` `accept` `accept-dir` `reject` |
 | provider 配置 | `llm` `llm-get` `llm-set` `llm-models` `llm-auto` `llm-import` `llm-export` |
 
-完整栈效应见 `ravel-breve-spec-v1.0p.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
+完整栈效应见 `ravel-breve-spec-v1.0q.md` 附录 A；未冻结项见 `docs/SPEC-FEEDBACK.md`
 （v1.0e 已把 SF-14…SF-35 冻结；v1.0f 加 REQ-52 处理流程层；v1.0g 加沙箱与默认工具；
 v1.0h 加用量 / 取消 / 截止时间；v1.0i 加自定义请求头与模型列表；
 v1.0j 加插件 ABI 与 skills；v1.0k 加配置预设与启动装载；v1.0l 加预制的可发现性；

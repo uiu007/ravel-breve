@@ -169,6 +169,17 @@
 # 复刻取舍见 docs/DECISIONS.md D-72：web / jobs / schedule / subagent / todo
 # 不复制（核心不含网络，子代理在本方言里是语言级的 agent/send，比工具更自然）。
 
+(def rb/default-system
+  # REQ-70 / D-76：default 原来是 `prompt nil`（裸发用户那句话），于是模型把「写一个项目」
+  # 当成聊天：只复述任务、只用 ls/read 探索。pi agent 的最小系统提示里就写着「动手」。
+  (string
+    "You are a coding agent powered by the {{model}} model.\n"
+    "工作目录：{{cwd}}\n"
+    "直接动手：能用工具做的就做，不要复述任务，也不要先交长篇计划（用户要计划时除外）。\n"
+    "写文件用 write（整文件覆盖），一次写完；改之前先 read。\n"
+    "事实去看（read / glob / grep），不要猜；只有真需要用户裁决时才问。\n"
+    "收尾用一两句话说明改了什么、怎么验证。"))
+
 (def rb/standard-system
   (string
     "You are a coding agent powered by the {{model}} model.\n"
@@ -278,10 +289,10 @@
   @{"default"
     (rb/mode-new
       "default"
-      "缺省：收尾钩子把流合并进会话，工具调用自动执行（REQ-18 / REQ-48）"
+      "缺省：一句系统提示 + 收尾钩子把流合并进会话，工具调用自动执行（REQ-18 / REQ-48 / REQ-70）"
       @{"allow-shell" true}
       (rb/ws-default-hooks)
-      nil
+      rb/default-system
       (rb/cap-default-tools))
 
     "ptc"
@@ -462,6 +473,7 @@
   p)
 
 (set rb/mode-inject-prompt rb/mode-inject-prompt!)
+(set rb/mode-prompt-default rb/default-system)
 
 # 装载序：`rb/tools.janet`（13）先于本文件（29），所以呈现层经间接层取这个判定（D-29）。
 (set rb/tool-open? rb/gate-open?)

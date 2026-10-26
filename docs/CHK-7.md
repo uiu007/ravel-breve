@@ -359,3 +359,61 @@ RB_SANDBOX=none ./bin/ravel -e 'read "/tmp/rb-chk8.txt"'
 - **审批要不要进前端事件流**：现在是 stderr 的交互提示，没有 `@Approve` 的订阅接口
   （前端若要弹出对话框，需要协议里加一条）。
 - **`y` / `d` 之外是否要 `a`（always，一次会话内全部目录）**：默认拒绝更安全，先不加。
+
+## 9. v1.0q 追记：轮次纪律（D-76 / REQ-70）
+
+一句话：**"说完了"成为一个可判定的事实**。每次响应收尾交一块
+`@{:finish reason :chars n :calls n}`；`length`（被 `max_tokens` 截断）或"零正文"且**没有工具调用**
+→ 在同一轮里续写（追加 `:continue true` 的提示、重发、接着吐）；`RB_CONTINUE_MAX` 封顶。
+
+### 9.1 七步人工验收
+
+```sh
+# ① 一次说完：不续写
+RB_MOCK_REPLY='写完了。' ./bin/ravel -e 'agent "c" { }
+send say "写个 README"
+drain'                                       # → "写完了。"
+
+# ② 被截断一次：自动续写（两段接在一起）
+RB_MOCK_FINISH=length,stop RB_MOCK_REPLY='写完了。' ./bin/ravel -e 'agent "c" { }
+send say "写个 README"
+drain'                                       # → "写完了。写完了。"
+
+# ③ 空转一次：也续写（提示文案换成「不要输出推理」）
+RB_MOCK_EMPTY=1,0 RB_MOCK_REPLY='写完了。' ./bin/ravel -e 'agent "c" { }
+send say "写个 README"
+drain'
+
+# ④ 一直空转：续到上限 → 60，消息点名 RB_MAX_TOKENS 与「推理与正文共用预算」
+RB_MOCK_EMPTY=1 ./bin/ravel -e 'agent "c" { }
+send say "写个 README"
+drain'; echo "退出码=$?"                    # → 60
+
+# ⑤ 关掉自动续写（回到 v1.0p 的行为）
+RB_CONTINUE_MAX=0 RB_MOCK_FINISH=length RB_MOCK_REPLY='写完了。' ./bin/ravel -e '...'
+
+# ⑥ 缺省值：8192 与 default 的系统提示
+./bin/ravel -e 'llm-get "max-tokens"'
+./bin/ravel --modes | grep -A2 default       # 提示里含「直接动手」
+
+# ⑦ 例程与版本
+./examples/run-all.sh
+./bin/ravel -v                               # ravel breve 1.0q · janet 1.42.1
+```
+
+| # | 手工动作 | 期望 |
+|---|---|---|
+| 1 | `finish = stop` | 只一段正文；`:continues 0`；会话 = user + assistant |
+| 2 | `RB_MOCK_FINISH=length,stop` | `:continues 1`；会话 = user + `:continue true` 的提示 + assistant |
+| 3 | `RB_MOCK_EMPTY=1,0` | `:continues 1`；提示里是「上一段没有正文」而不是「被截断」 |
+| 4 | 一直空转 | `60`；消息点名 `RB_MAX_TOKENS`（现值 8192）与 D-76 |
+| 5 | `RB_CONTINUE_MAX=0` | `:continues 0`，一次响应就收尾（旧行为）|
+| 6 | 有工具调用 | **不续写**：先把工具批执行完（`calls > 0` 挡住误判）|
+| 7 | `make test` / `-v` | `446 + 162 + 20 + core-only` 全绿；`ravel breve 1.0q · janet 1.42.1` |
+
+### 9.2 仍然留给用户裁决
+
+- **续写要不要跨轮**：本版不跨（`@RoundDone` 仍按"一轮一段"）；跨轮会让前端与存档的假设变形。
+- **别的 `finish_reason`**（如 `content_filter`）：当前只认 `length` 与"零正文"。
+- **收尾块要不要给前端**：现在只落进 `Stream` 的 `:finish` / `:finish-chars` / `:finish-calls`，
+  事件集不动（仍 9 个）；要不要加第 10 个 `@Finish` 事件待定。

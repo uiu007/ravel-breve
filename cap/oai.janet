@@ -4,7 +4,9 @@
 # 共用的解析规则：
 #   `data: {…}` 行 → 取 `choices[0].delta.content` 当文本块；
 #   `choices[0].delta.tool_calls` → 增量片段，按 `index` 累积（REQ-48）；
-#   `choices: []` 的收尾帧带 `usage` → 取块函数在取尽前先吐一个元信息块（REQ-55）；
+#   每次响应结束时先吐一个**收尾块** `@{:finish reason :chars n :calls n}`（REQ-70）：
+#     `reason` = `choices[0].finish_reason`（`length` = 被输出上限截断）；
+#   然后 `choices: []` 的收尾帧带 `usage` → 元信息块（REQ-55）；
 #   空行 / 注释行 / `event:` / `id:` → 跳过；`[DONE]` → 结束。
 # 错误体（JSON 的 `detail`/`error`/`message`，或纯文本错误页）→ 一律 60（D-56）。
 
@@ -59,6 +61,10 @@
   # P2：OpenAI 兼容的 usage 帧（通常是 `choices: []` 的最后一帧）
   (var usage nil)
   (var usage-sent false)
+  # REQ-70：一次响应的收尾信息。`length` = 被 `max_tokens` 截断（推理内容也吃这份预算）。
+  (var finish nil)
+  (var finish-sent false)
+  (var text-chars 0)
   (defn pull []
     (var go true)
     (var out nil)
@@ -80,7 +86,11 @@
                 (def obj (get j 1))
                 (when (dictionary? obj)
                   (def u (get obj "usage"))
-                  (when (dictionary? u) (set usage u))))
+                  (when (dictionary? u) (set usage u))
+                  (def ch (get obj "choices"))
+                  (when (and ch (> (length ch) 0))
+                    (def fr (get (ch 0) "finish_reason"))
+                    (when (string? fr) (set finish fr)))))
               (each tc (or (cap/oai-tool-deltas dec payload) [])
                 (def idx (or (get tc "index") 0))
                 (def cur (or (get acc idx) @{:id "" :name "" :args ""}))
@@ -92,7 +102,10 @@
                     (put cur :args (string (cur :args) (get f "arguments")))))
                 (put acc idx cur))
               (def c (cap/oai-text dec payload label))
-              (when c (set out c) (set go false)))))
+              (when c
+                (set text-chars (+ text-chars (length c)))
+                (set out c)
+                (set go false)))))
         (string/has-prefix? ":" line) nil                # SSE 注释/心跳
         (or (string/has-prefix? "event:" line) (string/has-prefix? "id:" line)) nil
         # 非 SSE 的行：要么是错误体（整段 JSON），要么是无 JSON 的纯文本错误页
@@ -114,9 +127,18 @@
             (rb/raise (rb/exit-table :orchestration-base)
                       (string label " 接口返回非 SSE 内容："
                               (string/slice line 0 (min 200 (length line)))))))))
-    (if (and usage (not usage-sent))
+    (cond
+      # REQ-70：先交收尾块（截断/空转要靠它判），再交用量，最后交工具批。
+      (and (nil? out) (not finish-sent))
+      (do (set finish-sent true)
+          @{:finish (or finish "stop")
+            :chars text-chars
+            :calls (length (keys acc))})
+
+      (and usage (not usage-sent))
       (do (set usage-sent true) @{:usage usage})
-      (if (and (nil? out) (not (empty? acc)))
+
+      (and (nil? out) (not (empty? acc)))
         (do
           (def calls @[])
           (each idx (sort (keys acc))
@@ -131,5 +153,7 @@
                                  "function" @{"name" (cur :name)
                                               "arguments" (cur :args)}}}))
           @{:tool-calls (tuple ;calls)})
-        out)))
+
+      true
+      out))
   pull)

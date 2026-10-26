@@ -61,6 +61,35 @@
             :raw @{"id" "call_mock" "type" "function"
                    "function" @{"name" name "arguments" argstr}}})))))
 
+(defn cap/mock-list-at
+  "把环境变量当成逗号分隔的列表，取第 `idx` 项（越界 = 最后一项；空/未设 = nil）。
+   REQ-70 用它模拟「第一次响应该被截断、第二次正常」这类确定序列。"
+  [name idx]
+  (def v (os/getenv name))
+  (when (and v (not (empty? v)))
+    (def items (string/split "," v))
+    (when (> (length items) 0)
+      (def i (min (max 0 idx) (- (length items) 1)))
+      (def s (string/trim (items i)))
+      (if (empty? s) nil s))))
+
+(defn cap/mock-turn-idx
+  "本请求是这一轮的第几次（按 user 消息数减一算；续写会追加一条 user 消息，于是递增）。"
+  [messages]
+  (var n 0)
+  (each m messages (when (= (get m :role) "user") (++ n)))
+  (max 0 (- n 1)))
+
+(defn cap/mock-finish
+  "REQ-70：收尾块。`RB_MOCK_FINISH` = 逗号序列（如 `length,stop`）；`RB_MOCK_EMPTY` = 逗号序列的 0/1。"
+  [messages chars calls]
+  (def idx (cap/mock-turn-idx messages))
+  (def empty? (= "1" (cap/mock-list-at "RB_MOCK_EMPTY" idx)))
+  (def reason (or (cap/mock-list-at "RB_MOCK_FINISH" idx) "stop"))
+  @{:finish reason
+    :chars (if empty? 0 chars)
+    :calls calls})
+
 (defn cap/mock-chat-tools
   "工具模式：会话里还没有 role=tool 的消息 → 先给一次工具调用，否则给文本。"
   [messages opts text]
@@ -72,11 +101,16 @@
       hit))
   (if (and spec (not has-tool-result))
     (do
-      (var sent false)
+      (var step 0)
       (fn []
         (cond
-          (not sent)
-          (do (set sent true)
+          (= step 0)
+          (do (set step 1)
+              # REQ-70：先交收尾块（截断/空转要靠它判）
+              (cap/mock-finish messages 0 1))
+
+          (= step 1)
+          (do (set step 2)
               # 工具批也带用量（P2）：真实 provider 通常把 usage 放在最后一帧，
               # mock 这里显式给，好让离线测试能断言「每次 provider 请求都记了」
               @{:tool-calls (tuple ;[(cap/mock-parse-tool)])
@@ -105,6 +139,12 @@
           (= i n)
           (do
             (++ i)
+            # REQ-70：收尾块先出，用量块后出（顺序与 cap/oai.janet 一致）
+            (cap/mock-finish messages (length (cap/chars text)) 0))
+
+          (= i (inc n))
+          (do
+            (++ i)
             @{:usage @{:prompt-tokens prompt-tokens
                        :completion-tokens completion-tokens
                        :total-tokens (+ prompt-tokens completion-tokens)}})
@@ -115,7 +155,10 @@
   [messages opts]
   (def last-msg (if (empty? messages) @{:content ""} (last messages)))
   (def echo (string "回声：" (get last-msg :content "")))
-  (def text (string (or (os/getenv "RB_MOCK_REPLY") echo)))
+  (var text (string (or (os/getenv "RB_MOCK_REPLY") echo)))
+  # REQ-70：`RB_MOCK_EMPTY` 命中的那一次响应返回**空正文**（模拟「推理吃光预算」）
+  (when (= "1" (cap/mock-list-at "RB_MOCK_EMPTY" (cap/mock-turn-idx messages)))
+    (set text ""))
   (cap/mock-chat-tools messages opts text))
 
 (rb/cap-put :llm/mock cap/mock-chat)

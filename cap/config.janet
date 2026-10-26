@@ -225,7 +225,7 @@
 
 (defn cap/llm-max-tokens
   []
-  (cap/cfg-num "max-tokens" "RB_MAX_TOKENS" 512))
+  (cap/cfg-num "max-tokens" "RB_MAX_TOKENS" 8192))
 
 (defn cap/llm-temperature
   []

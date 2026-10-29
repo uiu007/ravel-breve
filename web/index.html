@@ -24,6 +24,7 @@
     </div>
     <div class="topbar__meta">
       <span class="chip" id="chip-conn" data-state="wait">连接中…</span>
+      <span class="chip chip--ghost" id="chip-mode" title="当前处理流程（预置面板可一键切换）">模式 —</span>
       <span class="chip chip--ghost" id="chip-version">—</span>
       <span class="chip chip--ghost" id="chip-count">0 词</span>
     </div>
@@ -31,25 +32,115 @@
       <button class="btn btn--quiet" id="btn-cancel" title="停掉还开着的流（不清工作区）">停止流</button>
       <button class="btn btn--quiet btn--danger" id="btn-reset" title="丢弃整个工作区（字典 + 栈 + agent）">重置</button>
       <button class="btn btn--quiet" id="btn-theme" title="切换主题（美术钩子示例）">主题</button>
-      <button class="btn btn--quiet" id="btn-palette-toggle" title="收起/展开命令面板">命令</button>
+      <button class="btn btn--quiet" id="btn-palette-toggle" title="收起/展开左栏（窄屏时是浮层）">左栏</button>
     </div>
   </header>
 
   <main class="stage">
 
-    <!-- ── 命令面板 ───────────────────────────────────────────── -->
+    <!-- ── 命令面板：词表 / 预置 ───────────────────────────────── -->
     <aside class="panel palette" id="palette">
       <div class="panel__head">
         <h2 class="panel__title">命令</h2>
         <span class="panel__hint">点 = 开帧 / 拖 = 入栈</span>
       </div>
-      <div class="palette__filters">
-        <input id="search" class="input" type="search" placeholder="搜词 / 栈效应…" autocomplete="off" spellcheck="false">
-        <div class="chips" id="layers"></div>
+
+      <div class="palette__tabs" role="tablist" aria-label="命令面板">
+        <button class="tab is-on" id="tab-words" role="tab" aria-selected="true" type="button">词表</button>
+        <button class="tab" id="tab-presets" role="tab" aria-selected="false" type="button">预置</button>
       </div>
-      <div class="palette__list" id="wordlist"></div>
-      <div class="palette__foot">
-        <span class="kbd">⏎</span> 选中 N 项后点词 → 直接成帧
+
+      <div class="palette__pane" id="pane-words">
+        <div class="palette__filters">
+          <input id="search" class="input" type="search" placeholder="搜词 / 栈效应…" autocomplete="off" spellcheck="false">
+          <div class="chips" id="layers"></div>
+        </div>
+        <div class="palette__list" id="wordlist"></div>
+        <div class="palette__foot">
+          <span class="kbd">⏎</span> 选中 N 项后点词 → 直接成帧
+        </div>
+      </div>
+
+      <div class="palette__pane" id="pane-presets" hidden>
+        <div class="presets" id="presets">
+
+          <section class="pgroup">
+            <div class="pgroup__head">
+              <h3 class="pgroup__title">模式</h3>
+              <span class="pgroup__state" id="state-mode">—</span>
+            </div>
+            <p class="pgroup__hint">一键切换处理流程（= <code>mode "…"</code>），旁边是后端 <code>--modes</code> 报的真相。</p>
+            <div class="pgroup__body" id="modes-list"></div>
+            <div class="pgroup__row">
+              <button class="btn btn--tiny" id="btn-plan" type="button">plan：—</button>
+              <button class="btn btn--tiny btn--quiet" id="btn-state" type="button" title="读回 模式 / plan / provider / model / temperature">↻ 读回状态</button>
+            </div>
+          </section>
+
+          <section class="pgroup">
+            <div class="pgroup__head">
+              <h3 class="pgroup__title">配置</h3>
+              <span class="pgroup__state" id="state-config">—</span>
+            </div>
+            <p class="pgroup__hint">一键导入预设（= <code>llm-import "…"</code>），名字来自 <code>ravel --presets</code>。</p>
+            <div class="pgroup__body" id="presets-list"></div>
+            <div class="pgroup__row">
+              <input id="cfg-model" class="input input--mono" placeholder="模型名" autocomplete="off" spellcheck="false">
+              <button class="btn btn--tiny" id="btn-model-set" type="button">设模型</button>
+            </div>
+            <div class="pgroup__row">
+              <input id="cfg-temp" class="input input--mono" placeholder="温度，如 0.2" inputmode="decimal" autocomplete="off">
+              <button class="btn btn--tiny" id="btn-temp-set" type="button">设温度</button>
+            </div>
+            <div class="pgroup__row">
+              <button class="btn btn--tiny btn--quiet" id="btn-models" type="button" title="真的请求一次 provider 的模型列表">模型列表</button>
+              <button class="btn btn--tiny btn--quiet" id="btn-model-auto" type="button" title="按偏好自动选一个并写进配置">自动选</button>
+              <button class="btn btn--tiny btn--quiet" id="btn-grants" type="button" title="看/撤本工作区的临时授权">授权</button>
+            </div>
+          </section>
+
+          <section class="pgroup">
+            <div class="pgroup__head">
+              <h3 class="pgroup__title">Agent</h3>
+              <span class="pgroup__state" id="state-agents">—</span>
+            </div>
+            <p class="pgroup__hint">名字是<span class="pgroup__note" title="方言里没有「按标签取回 agent」的词：前端只记得自己建过哪些标签，后端靠标签域认人（bcast）。重置工作区后这份名单也会清空。">前端记的</span>；后端按标签认（<code>bcast { "标签" }</code>）。</p>
+            <div class="pgroup__row">
+              <input id="agent-label" class="input input--mono" placeholder="标签，如 coder" autocomplete="off" spellcheck="false">
+              <button class="btn btn--tiny btn--accent" id="btn-agent-new" type="button">新建</button>
+            </div>
+            <div class="pgroup__body" id="agents-list"></div>
+            <div class="pgroup__row">
+              <button class="btn btn--tiny btn--quiet" id="btn-cancel-all" type="button" title="= cancel：停掉所有还开着的流">停止所有流</button>
+            </div>
+          </section>
+
+          <section class="pgroup">
+            <div class="pgroup__head">
+              <h3 class="pgroup__title">发送</h3>
+              <span class="pgroup__state" id="state-send">—</span>
+            </div>
+            <div class="pgroup__row">
+              <select id="send-agent" class="input" aria-label="发给哪个 agent"></select>
+            </div>
+            <textarea id="send-text" class="input input--mono send-box" rows="3" placeholder="说点什么…（⌘/Ctrl+⏎ 发送）" spellcheck="false"></textarea>
+            <div class="pgroup__row">
+              <button class="btn btn--tiny btn--accent" id="btn-send" type="button">发送</button>
+              <button class="btn btn--tiny btn--quiet" id="btn-bcast" type="button" title="给所有活着的 agent 各发一份">广播</button>
+            </div>
+            <div class="pgroup__row pgroup__chips" id="send-canned"></div>
+          </section>
+
+          <section class="pgroup pgroup--log">
+            <div class="pgroup__head">
+              <h3 class="pgroup__title">预置日志</h3>
+              <button class="btn btn--tiny btn--quiet" id="btn-log-clear" type="button">清空</button>
+            </div>
+            <p class="pgroup__hint">每个按钮发出的方言源都在这里——照抄就能在 REPL 里用。</p>
+            <div class="plog" id="preset-log"></div>
+          </section>
+
+        </div>
       </div>
     </aside>
 

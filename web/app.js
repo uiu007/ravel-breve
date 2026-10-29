@@ -48,6 +48,7 @@
     activeFrame: null,
     armedFrame: false,         // "开帧…" 已按下，等下一个词
     last: null,                // 上次 result
+    backendLen: 0,             // 后端栈长度（每次 eval 响应都更新；-1 = 不可信，需重探）
     manual: false,
     conn: { state: "wait", text: "连接中…" },
     streams: [],               // [{tag, kind, text}]
@@ -408,6 +409,7 @@
     f.busy = true; renderFrames();
     try {
       const msg = await evalSource(frameSource(f), { quiet: true });
+      if (msg.ok) S.backendLen = (msg.stack || []).length; else S.backendLen = -1;
       f.result = msg.ok
         ? { ok: true, stack: msg.stack || [], ms: msg.ms }
         : { ok: false, error: msg.error || "失败", code: msg.code };
@@ -628,8 +630,14 @@
     if (!src.trim()) { status("没有可运行的源", "bad"); return; }
     const pending = S.frames.length;
     try {
-      if ($("#clean").checked) await api("/api/reset", {});
+      if ($("#clean").checked) {
+        await api("/api/reset", {});
+        afterReset();
+        R.log.unshift({ title: "（干净栈）工作区已重置：agent 名单也清了", src: "", ok: true, out: [], t: Date.now() });
+        renderLog();
+      }
       S.last = await evalSource(src);
+      if (S.last.ok) S.backendLen = (S.last.stack || []).length; else S.backendLen = -1;
       renderResult();
       const tail = pending ? `（还有 ${pending} 帧没返回，没进这次程序）` : "";
       if (S.last.ok) status(`运行完成 · ${(S.last.stack || []).length} 项 · ${S.last.ms}ms${tail}`, "ok");
@@ -870,8 +878,10 @@
     try {
       const msg = await api("/api/reset", {});
       S.stack = []; S.frames = []; S.sel.clear(); S.last = msg; S.activeFrame = null;
+      afterReset();
       renderStack(); renderFrames(); renderResult();
       status("工作区已重置", "ok");
+      await readState("读回状态");
     } catch (e) { status(String(e), "bad"); }
   });
 
@@ -941,6 +951,415 @@
     }
   });
 
+  /* ── 预置（recipes）──────────────────────────────────────────────────
+   *
+   * 预置**不是新的后端接口**：每个按钮只是替你打一段方言源，然后照常 POST /api/eval。
+   * 所以日志里那几行源代码就是全部真相——照抄进 REPL 一模一样。
+   *
+   * 两个必须先记住的坑：
+   *   ① **一行是从右往左执行的**（波兰式书写、镜像执行）：
+   *      `bcast say "hi" { "c" }` 里域写在最右、`bcast` 写在最左；
+   *   ② **行与行是从上往下的**：多步就写成多行，读起来才是自然的顺序。
+   *
+   * 还有一条诚实的边界：方言里**没有「按标签取回 agent」的词**。
+   * 所以前端只能记住自己建过哪些标签（localStorage），后端靠标签域认人（`bcast`）。
+   * 重置工作区 = agent 全没了 = 这份名单也得清空。
+   */
+  const R = {
+    modes: [], presets: [], agents: [],
+    mode: null, plan: null,
+    cfg: { provider: null, model: null, temperature: null },
+    log: [], sendTo: null, tab: "words", creating: false,
+  };
+
+  const esc = (s) => '"' + String(s)
+    .replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+    .replace(/\r/g, "").replace(/\n/g, "\\n").replace(/\t/g, "\\t") + '"';
+  const unquote = (s) => { const m = /^"([\s\S]*)"$/.exec(String(s ?? "")); return m ? m[1] : String(s ?? ""); };
+  const clip = (s, n = 30) => { const t = String(s ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n) + "…" : t; };
+
+  const READ_CFG = ['llm-get "provider"', 'llm-get "model"', 'llm-get "temperature"'].join("\n");
+  const READ_STATE = ['mode-of', 'mode-name', 'flag "plan"', READ_CFG].join("\n");
+
+  function loadAgents() {
+    try {
+      const raw = JSON.parse(localStorage.getItem("rb-agents") || "[]");
+      if (Array.isArray(raw)) R.agents = raw.filter(x => typeof x === "string");
+    } catch { R.agents = []; }
+  }
+  function saveAgents() {
+    try { localStorage.setItem("rb-agents", JSON.stringify(R.agents)); } catch { /* 隐私模式 */ }
+  }
+
+  /* 后端栈长度这一笔账：eval 是唯一的改变者，所以每次响应都记账。
+     账不可信时（上一条失败了）就问 `depth`——它自己也 +1，问完再 pop 掉。 */
+  async function resyncDepth() {
+    try {
+      const m = await evalSource("depth", { quiet: true });
+      const st = m.ok ? (m.stack || []) : [];
+      const v = parseInt(st[st.length - 1] ?? "", 10);
+      if (!Number.isFinite(v)) { S.backendLen = -1; return; }
+      const m2 = await evalSource("pop", { quiet: true });
+      S.backendLen = m2.ok ? (m2.stack || []).length : -1;
+    } catch { S.backendLen = -1; }
+  }
+
+  /** 跑一段预置源，把「这次新增的那几项」摘出来。
+   *  缺省 keep=false：读到的值 pop 回去——**预置不在后端栈里堆垃圾**（发送的回复例外）。
+   */
+  async function recipe(title, src, { keep = false } = {}) {
+    if (S.backendLen < 0) await resyncDepth();
+    const before = S.backendLen;
+    let msg;
+    try { msg = await evalSource(src, { quiet: true }); }
+    catch (e) { msg = { ok: false, code: 0, error: String(e), stack: [] }; }
+    const st = msg.stack || [];
+    if (msg.ok) S.backendLen = st.length;
+    else S.backendLen = -1;
+    S.last = msg;
+    renderResult();
+    const out = msg.ok ? (before < 0 || st.length < before ? st : st.slice(before)) : [];
+    R.log.unshift({
+      title, src, ok: !!msg.ok, out, t: Date.now(),
+      code: msg.code, error: msg.error || "",
+    });
+    if (R.log.length > 40) R.log.length = 40;
+    renderLog();
+    if (!msg.ok) status(`${title} 失败（code ${msg.code}）：${msg.error}`, "bad");
+    else status(`${title} ✓${out.length ? " · " + clip(out.join(" · "), 46) : ""}`, "ok");
+    if (!keep && msg.ok && before >= 0 && out.length) await popN(out.length);
+    return { msg, out };
+  }
+
+  /** 把后端栈上刚读的值丢掉（保持净零：预置不该在栈里留垃圾）。 */
+  async function popN(n) {
+    const src = Array.from({ length: n }, () => "pop").join("\n");
+    try {
+      const m = await evalSource(src, { quiet: true });
+      if (m.ok) { S.backendLen = (m.stack || []).length; S.last = m; renderResult(); }
+      else S.backendLen = -1;
+    } catch { S.backendLen = -1; }
+  }
+
+  /** 读 模式 / plan / provider / model / temperature（读完自动 pop 回去）。 */
+  async function readState(title = "读回状态") {
+    const { msg, out } = await recipe(title, READ_STATE);
+    if (!msg.ok) return;
+    if (out.length >= 5) {
+      R.mode = unquote(out[0]);
+      R.plan = out[1] === "true";
+      R.cfg.provider = unquote(out[2]);
+      R.cfg.model = unquote(out[3]);
+      R.cfg.temperature = out[4];
+      applyCfgInputs();
+      renderModes(); renderPlan(); renderCfg();
+    }
+  }
+
+  /* -- 模式 ------------------------------------------------------------ */
+  function renderModes() {
+    const box = $("#modes-list");
+    box.textContent = "";
+    if (!R.modes.length) {
+      box.append(h("p", { class: "plog__empty" }, "读不到模式表（后端没起来？）"));
+    }
+    for (const m of R.modes) {
+      const on = R.mode === m.name;
+      box.append(h("button", {
+        class: "pitem" + (on ? " is-on" : ""), type: "button",
+        title: `切到 ${m.name}（发 mode "${m.name}"）`,
+        onclick: () => switchMode(m.name),
+      },
+        h("span", { class: "pitem__name" }, m.name),
+        h("span", { class: "pitem__meta" }, on ? "当前" : `${(m.tools || []).length} 工具`),
+        m.desc ? h("span", { class: "pitem__desc" }, m.desc) : null,
+        (m.tools || []).length ? h("span", { class: "pitem__tools" }, "工具： " + m.tools.join(" ")) : null,
+      ));
+    }
+    $("#state-mode").textContent = R.mode || "—";
+    $("#chip-mode").textContent = `模式 ${R.mode || "—"}`;
+  }
+
+  async function switchMode(name) {
+    const { out } = await recipe(`模式 → ${name}`, `mode ${esc(name)}\nmode-of\nmode-name`);
+    if (out.length) R.mode = unquote(out[out.length - 1]);
+    renderModes();
+  }
+
+  function renderPlan() {
+    const btn = $("#btn-plan");
+    btn.textContent = `plan：${R.plan == null ? "—" : R.plan ? "开（点=关）" : "关（点=开）"}`;
+    btn.classList.toggle("btn--accent", !!R.plan);
+  }
+
+  async function setPlan(on) {
+    const { out } = await recipe(on ? "进入 plan" : "退出 plan", `${on ? "enter-plan" : "exit-plan"}\nflag "plan"`);
+    if (out.length) R.plan = out[out.length - 1] === "true";
+    renderPlan();
+  }
+
+  /* -- 配置 ------------------------------------------------------------ */
+  function renderPresets() {
+    const box = $("#presets-list");
+    box.textContent = "";
+    if (!R.presets.length) {
+      box.append(h("p", { class: "plog__empty" }, "读不到预设表（presets/ 是空的？）"));
+    }
+    for (const p of R.presets) {
+      const on = R.cfg.provider && p.provider === R.cfg.provider && p.model === unquote(R.cfg.model);
+      box.append(h("button", {
+        class: "pitem" + (on ? " is-on" : ""), type: "button",
+        title: `导入预设 ${p.name}（发 llm-import "${p.name}"）`,
+        onclick: () => importPreset(p.name),
+      },
+        h("span", { class: "pitem__name" }, p.name),
+        h("span", { class: "pitem__meta" }, p.provider || "—"),
+        h("span", { class: "pitem__desc" }, p.model || p.note || ""),
+      ));
+    }
+  }
+
+  function renderCfg() {
+    const { provider, model, temperature } = R.cfg;
+    $("#state-config").textContent = provider
+      ? `${provider} · ${model ? unquote(model) : "—"} · t=${temperature ?? "—"}`
+      : "—";
+    renderPresets();
+  }
+
+  /** 输入框是状态镜像：线上读到什么就写什么。 */
+  function applyCfgInputs() {
+    const model = R.cfg.model ? unquote(R.cfg.model) : "";
+    const t = R.cfg.temperature === "nil" || R.cfg.temperature == null ? "" : String(R.cfg.temperature);
+    if (model) $("#cfg-model").value = model;
+    if (t) $("#cfg-temp").value = t;
+  }
+
+  /** out 的尾巴总是 provider / model / temperature（前面可能还有个表或名字）。 */
+  function applyCfg(out) {
+    const t = out.slice(-3);
+    if (t.length === 3) {
+      R.cfg.provider = unquote(t[0]);
+      R.cfg.model = unquote(t[1]);
+      R.cfg.temperature = t[2];
+    }
+    applyCfgInputs();
+    renderCfg();
+  }
+
+  async function importPreset(name) {
+    const { out } = await recipe(`预设 → ${name}`, `llm-import ${esc(name)}\n${READ_CFG}`);
+    applyCfg(out);
+  }
+
+  async function setModel() {
+    const v = $("#cfg-model").value.trim();
+    if (!v) return status("先填一个模型名", "bad");
+    const { out } = await recipe(`模型 = ${v}`, `llm-set ${esc(v)} "model"\n${READ_CFG}`);
+    applyCfg(out);
+  }
+
+  async function setTemp() {
+    const raw = $("#cfg-temp").value.trim();
+    const n = Number(raw);
+    if (!raw || !Number.isFinite(n)) return status("温度得是个数字", "bad");
+    const { out } = await recipe(`温度 = ${n}`, `llm-set ${n} "temperature"\n${READ_CFG}`);
+    applyCfg(out);
+  }
+
+  /* -- agent ----------------------------------------------------------- */
+  function renderAgents() {
+    const box = $("#agents-list");
+    box.textContent = "";
+    if (!R.agents.length) {
+      box.append(h("p", { class: "plog__empty" }, "还没有 agent：填个标签点「新建」。"));
+    }
+    for (const label of R.agents) {
+      box.append(h("div", { class: "pitem pitem--static" },
+        h("span", { class: "pitem__name" }, label),
+        h("span", { class: "pitem__meta" }, R.sendTo === label ? "选中的收件人" : "标签"),
+        h("span", { class: "pitem__desc pitem__acts" },
+          h("button", { class: "btn btn--tiny", onclick: () => { R.sendTo = label; renderAgents(); $("#send-text").focus(); } }, "发…"),
+          h("button", { class: "btn btn--tiny btn--quiet", title: "给这个 agent 发一句「继续」", onclick: () => send("继续", { label }) }, "继续"),
+          h("button", { class: "btn btn--tiny btn--quiet", title: "前端不再记着它（后端那个还在）", onclick: () => forgetAgent(label) }, "忘掉"),
+        ),
+      ));
+    }
+    $("#state-agents").textContent = `${R.agents.length} 个`;
+    renderSend();
+  }
+
+  function forgetAgent(label) {
+    R.agents = R.agents.filter(x => x !== label);
+    if (R.sendTo === label) R.sendTo = R.agents[0] || null;
+    saveAgents();
+    renderAgents();
+    status(`前端不再记着 ${label}（后端那个还在，需要时重开工作区）`);
+  }
+
+  const nextLabel = () => { let i = 1; while (R.agents.includes(`a${i}`)) i++; return `a${i}`; };
+
+  async function newAgent(label) {
+    if (R.creating) return;               // 一笔没落完，不接第二笔
+    const name = String(label || "").trim() || nextLabel();
+    if (!/^[A-Za-z0-9_.\-]+$/.test(name)) return status("标签只能是字母/数字/下划线/点/横线", "bad");
+    if (R.agents.includes(name)) return status(`已经有个叫 ${name} 的 agent 了`, "bad");
+    R.creating = true;
+    $("#btn-agent-new").disabled = true;
+    // 先占位：桥是串行的（一条慢请求会把后面的排队），连点两下不该建出两个 agent
+    R.agents.push(name);
+    R.sendTo = name;
+    saveAgents();
+    renderAgents();
+    const { msg } = await recipe(`新建 agent ${name}`, `agent ${esc(name)} { }\npop`);
+    R.creating = false;
+    $("#btn-agent-new").disabled = false;
+    if (msg.ok) {
+      $("#agent-label").value = "";   // 成功才清：失败留着好重试，也不会让双击变成建 a1
+    } else {
+      R.agents = R.agents.filter(x => x !== name);
+      if (R.sendTo === name) R.sendTo = R.agents[0] || null;
+      saveAgents();
+      renderAgents();
+    }
+  }
+
+  /* -- 发送 ------------------------------------------------------------ */
+  function renderSend() {
+    const sel = $("#send-agent");
+    sel.textContent = "";
+    if (!R.agents.length) {
+      sel.append(h("option", { value: "" }, "（没有 agent，发送时会自动建一个）"));
+    }
+    for (const label of R.agents) {
+      sel.append(h("option", { value: label, selected: label === R.sendTo }, label));
+    }
+    $("#state-send").textContent = R.sendTo ? `→ ${R.sendTo}` : "—";
+  }
+
+  async function send(text, { label = null, all = false } = {}) {
+    const body = String(text || "").trim();
+    if (!body) return status("先写点什么", "bad");
+    if (!all && !label) {
+      if (!R.sendTo) {
+        if (!R.agents.length) await newAgent(nextLabel());
+        else R.sendTo = R.agents[0];
+      }
+      label = R.sendTo;
+    }
+    if (!all && !label) return status("没有可发的 agent", "bad");
+    const dom = all ? "{ }" : `{ ${esc(label)} }`;
+    const { msg, out } = await recipe(
+      all ? `广播：${clip(body)}` : `发送 → ${label}：${clip(body)}`,
+      `bcast say ${esc(body)} ${dom}\nmap [ drain ]`,
+      { keep: true },   // 回复留在后端栈上：可以拖回主栈 / 当成下一句的输入
+    );
+    if (!msg.ok) return;
+    if (out.length === 1 && out[0] === "()") {
+      status(`没有 agent 接住（后端可能没有「${label}」这个标签）——点上面的「新建」`, "bad");
+      return;
+    }
+    $("#send-text").value = "";
+  }
+
+  /* -- 日志 / 页签 ------------------------------------------------------ */
+  function renderLog() {
+    const box = $("#preset-log");
+    box.textContent = "";
+    if (!R.log.length) {
+      box.append(h("p", { class: "plog__empty" }, "点上面的按钮，这里会记下发出的方言源与结果。"));
+      return;
+    }
+    for (const e of R.log) {
+      box.append(h("div", { class: "plog__line", dataset: { ok: e.ok ? "ok" : "bad" } },
+        h("div", { class: "plog__head" },
+          h("span", { class: "plog__title" }, e.title),
+          h("span", { class: "plog__time" }, new Date(e.t).toLocaleTimeString("zh-CN", { hour12: false })),
+        ),
+        e.src ? h("pre", { class: "plog__src" }, e.src) : null,
+        e.ok
+          ? h("pre", { class: "plog__out" }, e.out.length ? e.out.join("\n") : "（无输出）")
+          : h("pre", { class: "plog__out plog__out--bad" }, `code ${e.code ?? "?"}：${e.error}`),
+      ));
+    }
+  }
+
+  function setTab(name) {
+    R.tab = name;
+    const words = name === "words";
+    $("#tab-words").classList.toggle("is-on", words);
+    $("#tab-presets").classList.toggle("is-on", !words);
+    $("#tab-words").setAttribute("aria-selected", String(words));
+    $("#tab-presets").setAttribute("aria-selected", String(!words));
+    $("#pane-words").hidden = !words;
+    $("#pane-presets").hidden = words;
+  }
+
+  /* -- 预置：接线 ------------------------------------------------------- */
+  const CANNED = ["继续", "说说现在的状态", "解释你刚才改了什么"];
+
+  /** 工作区被重置后：后端栈清空、agent 全没，前端记的那份也得跟着清。 */
+  function afterReset() {
+    S.backendLen = 0;
+    R.agents = []; R.sendTo = null;
+    R.mode = null; R.plan = null;
+    R.cfg = { provider: null, model: null, temperature: null };
+    saveAgents();
+    $("#cfg-model").value = ""; $("#cfg-temp").value = "";
+    renderAgents(); renderModes(); renderPlan(); renderPresets(); renderCfg();
+  }
+
+  function wirePresets() {
+    loadAgents();
+    renderModes(); renderPlan(); renderCfg(); renderAgents(); renderLog();
+
+    $("#tab-words").addEventListener("click", () => setTab("words"));
+    $("#tab-presets").addEventListener("click", () => setTab("presets"));
+    $("#btn-state").addEventListener("click", () => readState());
+    $("#btn-plan").addEventListener("click", () => setPlan(!R.plan));
+
+    $("#btn-model-set").addEventListener("click", setModel);
+    $("#cfg-model").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); setModel(); } });
+    $("#btn-temp-set").addEventListener("click", setTemp);
+    $("#cfg-temp").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); setTemp(); } });
+    $("#btn-models").addEventListener("click", () => recipe("模型列表", "llm-models"));
+    $("#btn-model-auto").addEventListener("click", async () => {
+      const { out } = await recipe("自动选模型", `llm-auto\n${READ_CFG}`);
+      applyCfg(out);
+    });
+    $("#btn-grants").addEventListener("click", (ev) => openMenu(ev.currentTarget, [
+      ["看授权（grants）", () => recipe("授权", "grants")],
+      ["全撤（ungrant）", () => recipe("撤授权", "ungrant")],
+    ]));
+
+    $("#btn-agent-new").addEventListener("click", () => newAgent($("#agent-label").value));
+    $("#agent-label").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); newAgent(ev.target.value); } });
+    $("#btn-cancel-all").addEventListener("click", () => recipe("停止所有流", "cancel"));
+
+    $("#send-agent").addEventListener("change", (ev) => { R.sendTo = ev.target.value || null; renderAgents(); });
+    $("#btn-send").addEventListener("click", () => send($("#send-text").value));
+    $("#btn-bcast").addEventListener("click", () => send($("#send-text").value, { all: true }));
+    $("#send-text").addEventListener("keydown", (ev) => {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") { ev.preventDefault(); send(ev.target.value); }
+    });
+    for (const phrase of CANNED) {
+      $("#send-canned").append(h("button", {
+        class: "btn btn--tiny btn--quiet", type: "button", title: `一键发送「${phrase}」`,
+        onclick: () => send(phrase),
+      }, phrase));
+    }
+    $("#btn-log-clear").addEventListener("click", () => { R.log = []; renderLog(); });
+  }
+
+  async function loadPresetData() {
+    try {
+      const [modes, presets] = await Promise.all([api("/api/modes"), api("/api/presets")]);
+      R.modes = modes.modes || [];
+      R.presets = presets.presets || [];
+    } catch { /* 桥旧了：这两块留空，不影响别的 */ }
+    renderModes(); renderPresets();
+  }
+
   /* ── 启动 ───────────────────────────────────────────────────────────── */
   async function boot() {
     try {
@@ -951,6 +1370,7 @@
     $("#program").readOnly = true;
     wireStackDrop();
     wireFramesDrop();
+    wirePresets();
     renderStack();
     renderFrames();
     renderStreams();
@@ -969,6 +1389,9 @@
       renderLayers();
       renderWords();
       $("#chip-count").textContent = `${S.words.length} 词 · ${words.groups.length} 层`;
+      // 预置的名单来自后端的 --modes / --presets（不硬编码），当前状态从方言里读回
+      await loadPresetData();
+      await readState("读回状态（启动）");
     } catch (e) {
       setConn("bad", "桥不通");
       status(`接不上桥：${e}（先跑 python3 web/bridge.py）`, "bad");

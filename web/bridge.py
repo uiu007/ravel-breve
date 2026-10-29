@@ -161,7 +161,103 @@ class Backend:
             self.proc.kill()
 
 
-def make_handler(backend, allow_origin=None):
+class Introspect:
+    """`ravel --modes` / `ravel --presets` 这两个只读查询开关的 JSON 化（REQ-64 / D-70）。
+
+    为什么走命令行而不是协议：这两个开关本来就是「装载前就能看」的自省，
+    方言里 `modes` 只给名字，`mode-of` 只给当前那个——列不出每个模式的工具与设定。
+    这里只做**文本搬运与切片**，不做解释：解析失败就把原文原样交给页面。
+    结果缓存几秒（改预设文件后不用重启桥，但也不必每次点都起进程）。
+    """
+
+    def __init__(self, ravel, env, ttl=5.0):
+        self.ravel = ravel
+        self.env = env
+        self.ttl = ttl
+        self.cache = {}
+        self.lock = threading.Lock()
+
+    def _run(self, flag):
+        p = subprocess.run([self.ravel, flag], cwd=ROOT, env=self.env,
+                           capture_output=True, text=True, timeout=30)
+        return (p.stdout or "") + (p.stderr or "")
+
+    def _cached(self, key, flag, parse):
+        now = time.time()
+        with self.lock:
+            hit = self.cache.get(key)
+            if hit and now - hit[0] < self.ttl:
+                return hit[1]
+        raw = ""
+        err = None
+        try:
+            raw = self._run(flag)
+        except Exception as e:  # 超时 / 找不到可执行文件
+            err = str(e)
+        data = parse(raw)
+        data["raw"] = raw
+        if err:
+            data["error"] = err
+        with self.lock:
+            self.cache[key] = (now, data)
+        return data
+
+    def modes(self):
+        return self._cached("modes", "--modes", parse_modes)
+
+    def presets(self):
+        return self._cached("presets", "--presets", parse_presets)
+
+
+def parse_modes(text):
+    """`--modes` 的文本 → {modes:[{name, tools, settings, desc}]}。
+
+    形状：首行是标题；每个模式以「两个空格 + 名字 + 工具：」开始，
+    后续更深的缩进行是「设定：…」与一句说明。"""
+    modes = []
+    cur = None
+    for line in (text or "").splitlines():
+        if not line.strip():
+            continue
+        m = re.match(r"^ {2}(\S+)\s+工具：(.*)$", line)
+        if m:
+            cur = {"name": m.group(1),
+                   "tools": m.group(2).split(),
+                   "settings": {},
+                   "desc": ""}
+            modes.append(cur)
+            continue
+        if cur is None:
+            continue
+        body = line.strip()
+        if body.startswith("设定："):
+            for bit in body[len("设定："):].split():
+                if "=" in bit:
+                    k, v = bit.split("=", 1)
+                    cur["settings"][k] = v
+            continue
+        if line.startswith(" " * 12):
+            cur["desc"] = (cur["desc"] + " " + body).strip()
+    return {"modes": modes}
+
+
+def parse_presets(text):
+    """`--presets` 的文本 → {presets:[{name, provider, model, note}]}。"""
+    out = []
+    for line in (text or "").splitlines():
+        m = re.match(r"^ {2}(\S+)\s+provider=(\S+)\s+model=(.*)$", line)
+        if m:
+            out.append({"name": m.group(1), "provider": m.group(2),
+                        "model": m.group(3).strip()})
+            continue
+        m = re.match(r"^ {2}(\S+)\s+(.*)$", line)
+        if m and not line.strip().startswith(("用法", "用户配置文件")):
+            out.append({"name": m.group(1), "provider": "", "model": "",
+                        "note": m.group(2)})
+    return {"presets": out}
+
+
+def make_handler(backend, allow_origin=None, intro=None):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "ravel-bridge/1.0"
@@ -232,6 +328,14 @@ def make_handler(backend, allow_origin=None):
                 return self._file("words.json")
             if path == "/api/log":
                 return self._json({"lines": list(backend.log)})
+            if path == "/api/modes":
+                if intro is None:
+                    return self._json({"modes": [], "raw": ""}, 503)
+                return self._json(intro.modes())
+            if path == "/api/presets":
+                if intro is None:
+                    return self._json({"presets": [], "raw": ""}, 503)
+                return self._json(intro.presets())
             if path == "/api/hello":
                 try:
                     return self._json(backend.request({"type": "hello"}, timeout=20))
@@ -336,7 +440,8 @@ def main(argv=None):
     if not os.path.isfile(args.ravel):
         raise SystemExit(f"找不到 {args.ravel}（先跑 make all）")
     backend = Backend([args.ravel, "--serve"], env)
-    handler = make_handler(backend)
+    intro = Introspect(args.ravel, env)
+    handler = make_handler(backend, intro=intro)
     try:
         httpd = ThreadingHTTPServer((args.host, args.port), handler)
     except OSError as exc:

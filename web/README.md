@@ -24,6 +24,10 @@ python3 web/bridge.py --mock --port 8787 --no-config --allow-shell false
      它是**跨请求保留**的（REQ-42 / REPL 语义），所以反复运行会累积——想干净重来勾「干净栈」
      （运行前发一条 `reset`）。
 3. **拖动只改本地**：`dragstart` 里绝不重建 DOM（只补 `is-sel` 类），否则 drop 目标会脱离文档。
+4. **预置 = 替你打一段方言源**（不是新接口）。左栏「预置」页签里的每个按钮都只做两件事：
+   拼字符串 → `POST /api/eval`。结果在「预置日志」里原样列出（源代码 + 输出 + 报错），
+   所以任何一个按钮都能照抄进 REPL。唯一例外是**发送**（回复故意留在后端栈上等你拖走），
+   其余预置读到的值会立刻 `pop` 回去——**预置不在栈里堆垃圾**。
 
 ## 手势与按键
 
@@ -42,6 +46,29 @@ python3 web/bridge.py --mock --port 8787 --no-config --allow-shell false
 | 跑 | `▶ 运行` 或 `Ctrl/⌘+Enter`（源默认由栈推导；勾「手改」后可自己写） |
 | 主题 | 顶栏「主题」循环 `dusk` / `paper` / `neon`（记在 `localStorage`） |
 
+### 预置页签（一键：模式 / 配置 / agent / 发送）
+
+| 想做的事 | 它发的方言源 |
+| --- | --- |
+| 切处理流程 | `mode "<名字>"` + `mode-of` + `mode-name`（名字表来自 `ravel --modes`） |
+| 进出 plan | `enter-plan` / `exit-plan` + `flag "plan"` |
+| 导入配置预设 | `llm-import "<名字>"`（名字表来自 `ravel --presets`）+ 读回三项 |
+| 改模型 / 温度 | `llm-set "<值>" "model"` · `llm-set <数> "temperature"`（**值在前、键在后**） |
+| 模型列表 / 自动选 | `llm-models` · `llm-auto`（会**真的**请求一次 provider） |
+| 授权 | `grants` / `ungrant` |
+| 新建 agent | `agent "<标签>" { }` + `pop` |
+| 发给一个 / 广播 | `bcast say "<话>" { "<标签>" }` · `bcast say "<话>" { }`，再接 `map [ drain ]` |
+| 停所有流 | `cancel` |
+| 读回当前状态 | `mode-of` `mode-name` `flag "plan"` + 三个 `llm-get`，读完 `pop` 回去 |
+
+两个诚实的边界：
+
+- **agent 名单是前端记的**（`localStorage`）：方言里没有「按标签取回 agent」的词，
+  后端靠标签域认人。所以重置工作区（或勾「干净栈」运行）后这份名单会跟着清空——
+  否则你会对着一堆不存在的标签发消息。
+- **桥是串行的**：一条慢请求（比如真去拉模型列表）会把后面的排队。所以「新建」
+  是**先占位再发**，连点两下不会建出两个；慢的时候状态栏会停在上一句。
+
 选中项开帧后，参数按**书写序**排列——即方言里最左的实参是栈顶。`源：` 那行就是即将发出去的文本。
 
 ## 文件
@@ -50,7 +77,7 @@ python3 web/bridge.py --mock --port 8787 --no-config --allow-shell false
 | --- | --- |
 | `index.html` | 三栏骨架：词表 / 工作台 / 函数栈 + 底栏。**没有逻辑**。 |
 | `app.css` | 三层：① 设计令牌 + 四套皮肤（`:root` 与 `[data-theme]`）；② 骨架与断点；③ 组件 |
-| `app.js` | 全部交互（原生 DOM，无框架、无构建步骤） |
+| `app.js` | 全部交互（原生 DOM，无框架、无构建步骤）。预置面板 = `R` 状态 + `recipe()` |
 | `bridge.py` | 桥：一个 `ravel --serve` 子进程 ↔ HTTP + SSE；纯标准库 |
 | `gen-catalog.py` | 从规格附录 A 机械抽取词表 → `words.json`（不手写，防漂移） |
 | `words.json` | 生成的词表（142 词 / 15 层），`arity` 由栈效应的 `--` 左侧推出 |
@@ -63,6 +90,7 @@ python3 web/bridge.py --mock --port 8787 --no-config --allow-shell false
 | `POST` | `/api/reset` `/api/cancel` `/api/ping` `/api/hello` | 直通协议同名请求 |
 | `GET` | `/api/events` | **SSE**：`chunk` / `event` / `close` / `stderr` / `backend-exit` 原样推 |
 | `GET` | `/api/words` `/api/log` | 词表 / 后端 stderr 尾巴 |
+| `GET` | `/api/modes` `/api/presets` | 把 `ravel --modes` / `--presets` 的**文本**解析成 JSON（5s 缓存），附 `raw` 原文 |
 
 配对规则照协议 v1：`result` 回显 `id`；`hello`/`pong`/`bye` 不回显，只能按 `type` 配对。
 
@@ -78,5 +106,7 @@ python3 web/bridge.py --mock --port 8787 --no-config --allow-shell false
 - **后端栈会累积**（REPL 语义）。工作台的本地栈才是"我这次的输入"。
 - 帧的「返回」把**整帧结果**压回主栈；想只拿一项就拖那一项。
 - 词表的 `arity` 只是提示：参数给少了后端会报 `20`（栈下溢），照常显示 `code` 与错误文本。
+- **方言是波兰式书写**：`2 3 +` 会下溢，正确的写法是 `+ 2 3`（一行 = 一个词 + 它的实参，
+  执行时从右往左）。手改模式下写错了只能自己看报错。
 - 页面不存历史，刷新即清空（后端工作区仍在，因为桥没重启）。
 - 桥只监听 `127.0.0.1`；要给别人看得自己加 `--host`（没有鉴权，别往公网放）。

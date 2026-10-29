@@ -1,7 +1,7 @@
 # 符合性矩阵（REQ ↔ 测试）
 
-依据规格：**`ravel-breve-spec-v1.0s.md`**（模型目录的兜底、估算与自动更新）；
-`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0r.md` 为历史原文。
+依据规格：**`ravel-breve-spec-v1.0t.md`**（卡住的后端：工具层超时、提示里的样例必须能跑）；
+`ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0s.md` 为历史原文。
 状态：**M20**（词表 L0–L9 + 持久化 L7 + agent / 流 / 钩子 / 收尾 + 工具调用 / 重试 / 压缩 / 编排边 + CLI / NDJSON 协议 v1 已落地；真 NVIDIA provider 已打通）。`✅` = 已有可执行验收；`⏳` = 计划在某里程碑落地；`❓` = 需人工裁决（见 `docs/DECISIONS.md` / `docs/SPEC-FEEDBACK.md`）。
 
 > 注：REQ-01…REQ-38 的编号与 v1.0b 保持稳定；v1.0c 新增 **REQ-39…REQ-46**，
@@ -13,6 +13,10 @@
 > **v1.0j 新增 REQ-60 / REQ-61**（插件装载卸载、插件编写 skills 的分层，见其 §4.17 与附录 O）；
 > **v1.0k 新增 REQ-62 / REQ-63**（配置预设的导入导出、启动装载，见其 §4.18 与附录 P）；
 > **v1.0l 新增 REQ-64**（预制的可发现性，见其 §4.19 与附录 Q）；
+> **v1.0t 新增 REQ-73 / REQ-74**（工具的墙钟闸是必需项、超时**当结果**还给模型
+> （`RB_SHELL_TIMEOUT`，缺省 60，`<=0` 不限）；写给模型看的调用样例必须能在 REPL 里
+> 原样跑通——`ptc` 提示里的 `invoke { … }` 改回 `invoke H{ … }`。见其 §4.13 / §4.15 与附录 Z），
+> 依据规格 `ravel-breve-spec-v1.0t.md`，状态 **M21d**。
 > **v1.0s 新增 REQ-72**（目录外照抄 pi 的 `contextWindow ?? 128000` / `maxTokens ?? 16384`；
 > `est` 两种算法取大者（字节法 vs 字符法）；新词 `catalog` / `catalog-refresh`，
 > 「自动更新」是一条可启停的钩子：缺省不装，`@on @Start [ catalog-refresh ]` 才有，`@off @Start` 即关。
@@ -404,3 +408,9 @@ D-48（重试只靠钩子）· D-49（压缩策略在用户侧）。
 | REQ-72 | ① 目录外/没核过的模型：`:max-tokens 0`（不知道）+ 窗口 `128000`（pi 的 `contextWindow ?? 128000`），额度落兜底 `16384`（pi 的 `maxTokens ?? 16384`），`source` 记 `:fallback`；② `cap/est-text-tokens`（由 `cap/est-tokens` 调用）**两种算法取大者**：字节法 `ceil(字节÷4)` vs 字符法 `ceil(ASCII÷4) + ceil(非ASCII字节÷3)`；③ 新词 `catalog`（`-- Table`，目录副本）与 `catalog-refresh`（`-- Int`，拉 `/models` 只登记没见过的名字，`:max-tokens 0` + 窗口 128000，不改已核过的数，幂等）；④ **自动更新 = 一条可启停的钩子**：缺省不装在任何事件上，`@on @Start [ catalog-refresh ]` 才有，`@off @Start` 即关；⑤ mock provider 也打 `BUDGET|` 行（`RB_DEBUG_BUDGET=1`）| `conformance/req-72-catalog.janet`（6 条）、`conformance/req-71-budget.janet`（改断言 16384/128000）、`unit/config.janet`（兜底 16384）、`examples/22-catalog.sh`（5 步）、`examples/21-budget.sh`（数字）|
 | REQ-71（修订）| 兜底 `32768` → `16384`；目录外窗口 `0` → `128000`（夹紧对所有模型生效）；`est` 由「JSON 字节 ÷ 4」改为两种算法取大者；验收标准指向 `req-72-catalog.janet` | 同上 |
 
+## v1.0t 新增 REQ（73 / 74）
+
+| REQ | 内容 | 测试 |
+|---|---|---|
+| REQ-73 | **工具的墙钟闸是必需项，超时是结果不是消失**：方言单线程，`shell` 干等子进程会把进程（连同桥）钉死，`cancel` 也排在同一线程后面；因此在**工具层**设闸——`RB_SHELL_TIMEOUT`（秒，缺省 60，`<= 0` = 不限，回归旧行为），用 `timeout -k 5 -s TERM` 包住 `sh -c`，退出码 `124/137` 时把 `[超时 Ns，已杀掉；要更久就设 RB_SHELL_TIMEOUT=<秒>（<=0 不限）]` **当工具结果压回栈**（不是抛错、不是消失）；系统没有 `timeout` 命令时退回旧行为；正常失败仍是 `[退出码 N]`，两种文本可分 | `unit/cap-tools.janet`（`RB_SHELL_TIMEOUT=1` + `sleep 30` → 8 秒内返回且结果点名超时、正常命令照旧、`=0` 拿掉闸）|
+| REQ-74 | **写给模型看的样例必须能在 REPL 里原样跑通**：`ptc` 的系统提示、隐藏工具清单的「调用形式」、`eval` 工具描述三处都曾写 `invoke "名字" { … }`，但本方言 `{ … }` 是序列/广播域，表是 `H{ … }`（照提示写 → 栈下溢 → 整轮白跑，人却看到「没输出」）；三处统一改 `H{ … }` 并注明区别，且**必须有测试把样例原样送进求值器** | `conformance/req-52-modes.janet`（提示里是 `H{`、不是 `{`；`invoke "shell" H{ "cmd" "echo hi" }` 真的返回 `hi`）|

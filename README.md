@@ -4,7 +4,7 @@
 
 - **第一次用：读 `QUICKSTART.md`**（10 分钟，只讲跑起来要的那点东西）；完整手册 `docs/GUIDE.md`
 - 命令：`ravel`，脚本扩展名 `.breve`，提示符 `ravel> `
-- 规格（现行）：`ravel-breve-spec-v1.0s.md`（模型目录的兜底 / 估算 / 自动更新：REQ-72 目录外照抄 pi 的 `?? 128000` / `?? 16384`、`est` 两种算法取大者、`catalog-refresh` 的启停交给钩子；输出预算：REQ-71 模型目录 / 上下文夹紧 / `out < max` 才算可恢复的截断；轮次纪律：REQ-70 收尾块 / 截断续写 / `default` 系统提示；越界与审批：REQ-69 请求表 / `@Approve` / 临时授权 `grant`；工具的参数：REQ-68 参数形状 / 别名 / 手误回给模型；模式的设定：REQ-67 工具与设定自洽；模式的复刻：REQ-65/66 + dsh 四个预置；预制的可发现性：REQ-64；配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
+- 规格（现行）：`ravel-breve-spec-v1.0t.md`（卡住的后端：REQ-73 工具的墙钟闸（超时当结果）/ REQ-74 提示里的样例必须能原样跑通；模型目录的兜底 / 估算 / 自动更新：REQ-72 目录外照抄 pi 的 `?? 128000` / `?? 16384`、`est` 两种算法取大者、`catalog-refresh` 的启停交给钩子；输出预算：REQ-71 模型目录 / 上下文夹紧 / `out < max` 才算可恢复的截断；轮次纪律：REQ-70 收尾块 / 截断续写 / `default` 系统提示；越界与审批：REQ-69 请求表 / `@Approve` / 临时授权 `grant`；工具的参数：REQ-68 参数形状 / 别名 / 手误回给模型；模式的设定：REQ-67 工具与设定自洽；模式的复刻：REQ-65/66 + dsh 四个预置；预制的可发现性：REQ-64；配置预设：REQ-62/63；v1.0j 插件 ABI 与 skills：REQ-60/61；v1.0i 请求头与模型列表：REQ-58/59；v1.0h 用量 / 取消 / 截止时间；v1.0g 沙箱与默认工具；v1.0f 起有 REQ-52 模式层）；
   `ravel-breve-spec-v1.0b.md` … `ravel-breve-spec-v1.0q.md` 保留为历史（不删改）
 - 许可：**MIT**（见 `LICENSE`）；嵌入的 Janet 1.42.1 亦为 MIT（见 `vendor/janet`）
 - 规格反馈（缺陷/留白）：`docs/SPEC-FEEDBACK.md`
@@ -36,7 +36,7 @@ bash tests/e2e/opencode.sh  # 真 provider 验收（OpenCode Zen/Go；无密钥�
 
 ```sh
 make clean && make
-./bin/ravel -v                         # ravel breve 1.0s · janet 1.42.1
+./bin/ravel -v                         # ravel breve 1.0t · janet 1.42.1
 ./bin/ravel --dump -e 'take 2 "abcde"' # (do (rb/push "abcde") (rb/push 2) (rb/take))
 ./bin/ravel -e 'take 2 "abcde"'        # "ab"
 ./bin/ravel -e 'map [ * 2 ] { 1 2 3 }' # (2 4 6)
@@ -192,7 +192,7 @@ llm-export ".ravel.json"        # 存回去 → 4（写入项数）
 - 一键配好 OpenCode Go：`tools/oc-setup.sh sk-xxxx`（密钥 → `secrets/opencode.key` chmod 600 +
   预设 → `~/.config/ravel/config.json`；已有密钥**拒绝覆盖**，`--force` 会先留 `.bak`）。
 
-## 处理流程模式（M14 / v1.0m，设定自洽于 v1.0n，参数自洽于 v1.0o，越界可裁决于 v1.0p，缺省带上系统提示于 v1.0q，额度归模型目录于 v1.0r，目录的兜底/估算/更新于 v1.0s）
+## 处理流程模式（M14 / v1.0m，设定自洽于 v1.0n，参数自洽于 v1.0o，越界可裁决于 v1.0p，缺省带上系统提示于 v1.0q，额度归模型目录于 v1.0r，目录的兜底/估算/更新于 v1.0s，提示样例可执行于 v1.0t）
 
 「一轮请求怎么被处理」是一份**数据**，不是实现细节。`mode` 装进去，`mode-of` 取出来。
 五个预制模式里，四个是 DeepSeek harness 预置的复刻：

@@ -104,6 +104,26 @@
         "RB_ALLOW_SHELL=0 压过工作区开关")
     (os/setenv "RB_ALLOW_SHELL" nil)))
 
+(deftest "D-79：shell 有超时闸——卡住的命令当结果还回来，不钉死进程"
+  (fn []
+    (def env (new-ws))
+    # 慢性子命令 + 1 秒闸：必须**在闸上**返回，且返回的是一段文本而不是异常
+    (os/setenv "RB_SHELL_TIMEOUT" "1")
+    (def t0 (os/time))
+    (def out (eval-top-in env "invoke \"shell\" H{ \"cmd\" \"sleep 30\" }"))
+    (def dt (- (os/time) t0))
+    (is (string? out) "超时不是抛错，是工具结果")
+    (is (string/find "[超时 1s" out) (string "结果里点名超时：" out))
+    (is (string/find "RB_SHELL_TIMEOUT" out) "并告诉模型怎么放宽")
+    (is (< dt 8) (string "真的刹住了（用了 " dt "ms，不是等满 30s）"))
+    # 正常命令照旧
+    (os/setenv "RB_SHELL_TIMEOUT" "10")
+    (is= "hi\n" (eval-top-in env "invoke \"shell\" H{ \"cmd\" \"echo hi\" }"))
+    # <=0 = 不限（回归旧行为）：只验闸门被拿掉，真跑一条短的
+    (os/setenv "RB_SHELL_TIMEOUT" "0")
+    (is= "ok\n" (eval-top-in env "invoke \"shell\" H{ \"cmd\" \"echo ok\" }"))
+    (os/setenv "RB_SHELL_TIMEOUT" nil)))
+
 (deftest "D-61：file 工具也守沙箱（越界 → 60）"
   (fn []
     (def env (new-ws))

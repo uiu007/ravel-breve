@@ -202,7 +202,9 @@
   (string
     "PTC 模式（仿 DeepSeek harness 的 Programmatic Tool Calling）："
     "不要发出 tool_call。改用工具 eval 提交一段 ravel breve 程序——"
-    "程序里可以用 `invoke \"<工具名>\" { … }` 调用任何已注册的工具。"
+    "程序里可以用 `invoke \"<工具名>\" H{ … }` 调用任何已注册的工具"
+    "——参数是**表**，写 `H{ \"path\" \"README.md\" }`；`{ … }` 是序列/广播域，"
+    "当参数表用会栈下溢。"
     "一行一条语句，前缀式书写（最左实参先被消费）；程序执行完的栈顶就是工具结果。"
     "在本轮结束前只调一次 eval，把「要几次往返才问得清」的活儿写进程序里。"))
 
@@ -306,7 +308,7 @@
       rb/ptc-system
       (merge (table/clone (rb/cap-default-tools))
              @{"eval" @{:desc (string "执行一段 ravel breve 程序并返回栈顶；"
-                                      "程序里可用 invoke \"工具名\" { … }。")
+                                      "程序里可用 invoke \"工具名\" H{ … }（参数是表：H{ 键 值 }）。")
                         :params @{:type "object"
                                   :properties @{"src" @{:type "string"
                                                          :description "ravel breve 程序源码（一行一条语句）"}}
@@ -449,7 +451,9 @@
       (each n hidden
         (def d (rb/tool-get n))
         (array/push out (string "- " n "：" (d :desc))))
-      (array/push out "调用形式：`invoke \"名字\" { \"参数\" 值 }`；一行一条语句。")
+      (array/push out
+        "调用形式：`invoke \"名字\" H{ \"参数\" 值 }`；一行一条语句。"
+        "注意参数是**表**（`H{ … }`）——`{ … }` 是序列/广播域字面量，用它当参数会栈下溢。")
       (string/join out "\n"))))
 
 (defn rb/mode-prompt-of

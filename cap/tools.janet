@@ -275,10 +275,22 @@
   (++ cap/tool-sh-seq)
   (string (or (os/getenv "TMPDIR") "/tmp") "/rb-sh-" (os/getpid) "-" cap/tool-sh-seq))
 
+(defn cap/shell-timeout
+  "shell 工具的超时秒数（D-79）：`RB_SHELL_TIMEOUT`，缺省 60；<=0 表示不限（回归旧行为）。"
+  []
+  (def v (os/getenv "RB_SHELL_TIMEOUT"))
+  (def n (if v (scan-number v) nil))
+  (if (and (number? n) (> n 0)) (math/floor n) 60))
+
 (defn cap/tool-shell
   "shell：{ cmd } —— 跑一句 `sh -c`，返回 stdout（+ stderr）。
    需要前置设定 `allow-shell`（模式声明，缺省开；REQ-67）：一句 sh -c 等于绕过文件沙箱，
-   所以它有自己的开关，而不是跟文件工具共用沙箱。"
+   所以它有自己的开关，而不是跟文件工具共用沙箱。
+
+   超时（D-79）：方言是**单线程**的，一句挂住的命令（`sleep 600`、等 stdin 的 `cat`、
+   交互式程序）会把整个进程连同桥一起钉死，前端表现为「发送后卡死」。
+   所以缺省挂 60 秒的闸，超时就杀掉并**把超时当结果还给模型**
+   （模型能自己改主意，用户也能看到原因），而不是让进程消失。"
   []
   (def args (rb/pop))
   (def cmd (cap/tool-require args "cmd"))
@@ -287,14 +299,35 @@
                    "打开：flag-set true \"allow-shell\"，或置 RB_ALLOW_SHELL=1")))
   # 要**捕获**输出：os/execute 会把子进程 stdio 直接接给本进程（janet 1.42 的 :p 只是查 PATH），
   # 所以这里自己开一根管道（os/spawn + 读完再 wait）。
+  (def secs (cap/shell-timeout))
   (def tmp (cap/tool-tmp-file))
   (def f (file/open tmp :w))
-  (def proc (os/spawn ["/bin/sh" "-c" cmd] :p {:out f :err f}))
+  (var gated (> secs 0))
+  # `timeout`（coreutils）是闸；-k 5 保证 TERM 不走时还有 KILL。没有它的系统退化成旧行为。
+  (def argv (if gated
+              @["timeout" "-k" "5" "-s" "TERM" (string secs) "/bin/sh" "-c" cmd]
+              @["/bin/sh" "-c" cmd]))
+  (def r (protect (os/spawn argv :p {:out f :err f})))
+  (def proc (if (get r 0) (get r 1) nil))
+  (def code
+    (cond
+      proc (os/proc-wait proc)
+      gated (do   # 没有 timeout 命令：退回不限时的老路
+              (set gated false)
+              (os/proc-wait (os/spawn ["/bin/sh" "-c" cmd] :p {:out f :err f})))
+      (do
+        (file/close f)
+        (protect (os/rm tmp))
+        (error (string "shell 起不来：" (get r 1))))))
   (file/close f)
-  (def code (os/proc-wait proc))
   (def out (string (slurp tmp)))
   (protect (os/rm tmp))
-  (rb/push (if (= code 0) out (string out "\n[退出码 " code "]")))
+  (rb/push
+    (cond
+      (= code 0) out
+      (and gated (or (= code 124) (= code 137)))
+      (string out "\n[超时 " secs "s，已杀掉；要更久就设 RB_SHELL_TIMEOUT=<秒>（<=0 不限）]")
+      (string out "\n[退出码 " code "]")))
   nil)
 
 # ---- 安装 -----------------------------------------------------------------

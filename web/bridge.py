@@ -38,7 +38,9 @@ class Backend:
 
     def __init__(self, argv, env, keep=200):
         self.argv = argv
+        self.env = env
         self.lock = threading.Lock()          # 一次只发一个请求
+        self.rlock = threading.Lock()         # 重启时独占（别让两个请求同时重启）
         self.wlock = threading.Lock()         # 写 stdin
         self.waiters = {}                     # id -> {"ev": Event, "msg": dict|None}
         # hello / ping / quit 的响应**不回显 id**（协议 §2.2），只能按类型配对
@@ -49,17 +51,46 @@ class Backend:
         self.keep = keep
         self.seq = 0
         self.dead = None
+        self.gen = 0                          # 第几代后端（重启一次 +1）
+        self._spawn()
+
+    def _spawn(self):
         self.proc = subprocess.Popen(
-            argv, cwd=ROOT, env=env,
+            self.argv, cwd=ROOT, env=self.env,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, bufsize=1,
         )
-        threading.Thread(target=self._read_stdout, daemon=True).start()
-        threading.Thread(target=self._read_stderr, daemon=True).start()
+        threading.Thread(target=self._read_stdout, args=(self.proc, self.gen), daemon=True).start()
+        threading.Thread(target=self._read_stderr, args=(self.proc, self.gen), daemon=True).start()
+
+    def restart(self, why=""):
+        """卡住的唯一解药：方言是单线程的，一句挂住的 shell 或死循环**没法从内部打断**
+        （`cancel` 也排在同一个线程后面）。所以桥只能杀掉重开——代价是栈与 agent 全清空，
+        这比让页面永远转圈诚实。返回被丢弃的 stderr 尾巴，好让页面知道刚才在干什么。"""
+        with self.rlock:
+            old = self.proc
+            self.gen += 1
+            gen = self.gen
+            try:
+                old.kill()
+            except Exception:
+                pass
+            try:
+                old.wait(timeout=5)
+            except Exception:
+                pass
+            tail = list(self.log[-40:])
+            self.dead = None
+            self.waiters.clear()
+            self.waiters_by_type.clear()
+            self.seq = 0
+            self._spawn()
+            self._push({"type": "backend-restart", "gen": gen, "why": why})
+            return tail
 
     # -- 进出 -------------------------------------------------------------
-    def _read_stdout(self):
-        for line in self.proc.stdout:
+    def _read_stdout(self, proc, gen):
+        for line in proc.stdout:
             line = line.strip()
             if not line:
                 continue
@@ -83,11 +114,12 @@ class Backend:
                 self._push(msg)
             elif msg.get("type") == "result":
                 self._push(msg)
-        self.dead = self.proc.poll()
-        self._push({"type": "backend-exit", "code": self.dead})
+        if gen == self.gen:
+            self.dead = proc.poll()
+            self._push({"type": "backend-exit", "code": self.dead})
 
-    def _read_stderr(self):
-        for line in self.proc.stderr:
+    def _read_stderr(self, proc, gen):
+        for line in proc.stderr:
             text = line.rstrip("\n")
             if not text.strip():
                 continue
@@ -95,7 +127,8 @@ class Backend:
             if len(self.log) > self.keep:
                 self.log.pop(0)
             self._push({"type": "stderr", "text": text})
-        self._push({"type": "backend-exit", "code": self.proc.poll()})
+        if gen == self.gen:
+            self._push({"type": "backend-exit", "code": proc.poll()})
 
     def _push(self, msg):
         with self.sublock:
@@ -131,13 +164,16 @@ class Backend:
                 self.waiters_by_type[{"hello": "hello", "ping": "pong", "quit": "bye"}[obj["type"]]] = w
             else:
                 self.waiters[rid] = w
+            proc = self.proc
             try:
                 line = json.dumps(obj, ensure_ascii=False)
                 with self.wlock:
-                    self.proc.stdin.write(line + "\n")
-                    self.proc.stdin.flush()
+                    proc.stdin.write(line + "\n")
+                    proc.stdin.flush()
                 if not w["ev"].wait(timeout):
-                    raise TimeoutError(f"后端 {timeout:.0f}s 未响应（{obj.get('type')}）")
+                    raise TimeoutError(
+                        f"后端 {timeout:.0f}s 没响应（{obj.get('type')}）——"
+                        "多半是卡在一条不返回的命令或死循环上")
                 return w["msg"]
             finally:
                 self.waiters.pop(rid, None)
@@ -257,7 +293,7 @@ def parse_presets(text):
     return {"presets": out}
 
 
-def make_handler(backend, allow_origin=None, intro=None):
+def make_handler(backend, allow_origin=None, intro=None, eval_timeout=180.0):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "ravel-bridge/1.0"
@@ -386,15 +422,25 @@ def make_handler(backend, allow_origin=None, intro=None):
                     if not isinstance(src, str):
                         return self._json({"ok": False, "code": 2,
                                            "error": "src 必须是字符串", "type": "result"}, 400)
-                    msg = backend.request({"type": "eval", "src": src})
+                    msg = backend.request({"type": "eval", "src": src},
+                                          timeout=eval_timeout)
                     return self._json(msg)
                 if path in ("/api/reset", "/api/cancel", "/api/ping", "/api/hello"):
                     kind = path.split("/")[-1]
                     msg = backend.request({"type": kind}, timeout=30)
                     return self._json(msg)
+                if path == "/api/restart":
+                    tail = backend.restart("页面点的重启")
+                    return self._json({"ok": True, "type": "restart", "gen": backend.gen,
+                                       "stderr": tail})
                 return self._json({"ok": False, "error": "未知的接口"}, 404)
             except TimeoutError as e:
-                return self._json({"ok": False, "code": 60, "error": str(e), "type": "result"}, 504)
+                # 卡住的后端叫不醒（单线程）：杀掉重开，把「栈清空、agent 要重建」说清楚。
+                tail = backend.restart(str(e))
+                return self._json({"ok": False, "code": 60, "type": "result",
+                                   "restarted": True, "gen": backend.gen,
+                                   "error": str(e) + "；后端已重启（栈与 agent 都清空了）",
+                                   "stderr": tail[-12:]}, 504)
             except Exception as e:  # 后端挂了 / 管道断了
                 return self._json({"ok": False, "code": 50, "error": str(e), "type": "result"}, 503)
 
@@ -422,6 +468,10 @@ def main(argv=None):
     ap.add_argument("--sandbox", default=None, help="透传 RB_SANDBOX")
     ap.add_argument("--llm", default=None, help="透传 RB_LLM（opencode / nvidia / mock）")
     ap.add_argument("--no-config", action="store_true", help="RB_CONFIG=-（不读用户配置）")
+    ap.add_argument("--eval-timeout", type=float, default=180.0,
+                    help="一次求值最多等多少秒（超时就重启后端），缺省 180")
+    ap.add_argument("--shell-timeout", default=None,
+                    help="透传 RB_SHELL_TIMEOUT（shell 工具的超时秒数，缺省 60）")
     args = ap.parse_args(argv)
 
     env = dict(os.environ)
@@ -436,12 +486,14 @@ def main(argv=None):
         env["RB_ALLOW_SHELL"] = args.allow_shell
     if args.sandbox:
         env["RB_SANDBOX"] = args.sandbox
+    if args.shell_timeout:
+        env["RB_SHELL_TIMEOUT"] = args.shell_timeout
 
     if not os.path.isfile(args.ravel):
         raise SystemExit(f"找不到 {args.ravel}（先跑 make all）")
     backend = Backend([args.ravel, "--serve"], env)
     intro = Introspect(args.ravel, env)
-    handler = make_handler(backend, intro=intro)
+    handler = make_handler(backend, intro=intro, eval_timeout=args.eval_timeout)
     try:
         httpd = ThreadingHTTPServer((args.host, args.port), handler)
     except OSError as exc:

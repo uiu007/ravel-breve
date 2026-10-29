@@ -116,3 +116,24 @@
     (def ms (rb/messages-of a))
     (is= (tup ["user"]) (tup (map (fn [m] (m :role)) ms)) "标记不是消息")
     (is= (tup [:content :role]) (tup (sort (keys (ms 0)))) "请求里只有 role / content")))
+
+# D-80 的回归闸：ptc 的提示里必须写 `H{ … }`（表），不能写 `{ … }`（那是序列/广播域）。
+# 模型只读提示——样例错一个字符，它就整轮白跑，报的还是「栈下溢」这种把人引向「方言坏了」的错。
+(deftest "REQ-52 / D-80：ptc 提示把工具参数写成表 H{ … }"
+  (fn []
+    (def env (new-ws))
+    (is= 0 (run-in-exit env "mode \"ptc\""))
+    # 模式自身的提示
+    (def own ((env :rb-ws) :mode-prompt))
+    (is (string/find "invoke \"<工具名>\" H{" own) "ptc 提示的参数样例是 H{")
+    (is (nil? (string/find "invoke \"<工具名>\" {" own)) "没有把序列字面量当参数表")
+    # 隐藏工具清单（wire-sdk 段）要跑一轮才拼进去
+    (os/setenv "RB_MOCK_TOOL" "eval:{\"src\": \"1\"}")
+    (def r (run-in env (string "agent \"c\" { }\n" "send say \"算\"\n" "drain")))
+    (os/setenv "RB_MOCK_TOOL" nil)
+    (is (r :ok) (string "应成功：" (if (r :ok) "" (rb/error-msg (r :error)))))
+    (def full ((last (ws-agents env)) :mode-prompt))
+    (is (string/find "invoke \"名字\" H{" full) "隐藏工具清单的「调用形式」是 H{")
+    # 照提示写的那一行必须真能跑通（「样例必须原样可执行」的判据）
+    (def out (eval-top-in env "invoke \"shell\" H{ \"cmd\" \"echo hid80\" }"))
+    (is (string/find "hid80" (string out)) "H{ … } 形式真的调到了 shell")))

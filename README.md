@@ -245,6 +245,11 @@ flag "plan"                    # → true
 - **工具与设定自洽**（M15 / v1.0n）：`shell` 需要前置设定 `allow-shell`，它**随模式一起来**
   （五个预制模式都声明 `true`，不切模式也是配好的）——所以 `default` 下 `invoke "shell"` 开箱即用；
   关掉写 `flag-set false "allow-shell"` 或置 `RB_ALLOW_SHELL=0`，关掉后它连 wire 都不上。
+- **`shell` 自带超时闸**（M21d / D-79）：方言是单线程的，一句 `sleep 600` 或等输入的 `cat`
+  会把整个进程（连同网页桥）钉死，而 `cancel` 也排在同一线程后面——所以在**工具层**设闸：
+  缺省 60 秒（`RB_SHELL_TIMEOUT`，`<=0` = 不限），超时**当工具结果**还给模型
+  （`[超时 60s，已杀掉；要更久就设 RB_SHELL_TIMEOUT=<秒>]`），让它自己改主意。
+  长构建就显式放宽，别拆闸。
 
 ## 持久化与工作区（M4）
 

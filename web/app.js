@@ -657,6 +657,7 @@
       }
       S.last = await evalSource(src);
       if (S.last.ok) S.backendLen = (S.last.stack || []).length; else S.backendLen = -1;
+      if (S.last.restarted) resetAfterRestart();
       renderResult();
       const tail = pending ? `（还有 ${pending} 帧没返回，没进这次程序）` : "";
       if (S.last.ok) status(`运行完成 · ${(S.last.stack || []).length} 项 · ${S.last.ms}ms${tail}`, "ok");
@@ -989,6 +990,7 @@
     mode: null, plan: null,
     cfg: { provider: null, model: null, temperature: null },
     log: [], sendTo: null, tab: "words", creating: false,
+    stale: false,             // 后端被重启过：名单里的标签都陈了，得「重建」
   };
 
   const esc = (s) => '"' + String(s)
@@ -1023,6 +1025,15 @@
     } catch { S.backendLen = -1; }
   }
 
+  /** 后端被桥杀掉重开过：栈与 agent 全没了，账目不能信，得重探；名单里的标签都得「重建」。 */
+  function resetAfterRestart() {
+    S.backendLen = -1;
+    S.streams = [];
+    renderStreams();
+    R.stale = true;            // 名字留着（是用户的），但后端已经没有它们了
+    renderAgents();
+  }
+
   /** 跑一段预置源，把「这次新增的那几项」摘出来。
    *  缺省 keep=false：读到的值 pop 回去——**预置不在后端栈里堆垃圾**（发送的回复例外）。
    */
@@ -1035,6 +1046,7 @@
     const st = msg.stack || [];
     if (msg.ok) S.backendLen = st.length;
     else S.backendLen = -1;
+    if (msg.restarted) resetAfterRestart();
     S.last = msg;
     renderResult();
     const out = msg.ok ? (before < 0 || st.length < before ? st : st.slice(before)) : [];
@@ -1206,7 +1218,9 @@
         ),
       ));
     }
-    setState("#state-agents", `${R.agents.length} 个`);
+    setState("#state-agents", R.stale
+      ? `${R.agents.length} 个 · 后端重启过，点「重建」`
+      : `${R.agents.length} 个`);
     renderSend();
   }
 
@@ -1223,7 +1237,7 @@
   /** 名单是前端记的，后端可能过期：重发一次 agent 语句，把标签重新种回后端工作区。 */
   async function recreateAgent(label) {
     const { msg } = await recipe(`重建后端 agent ${label}`, `agent ${esc(label)} { }\npop`);
-    if (msg.ok) status(`后端已重新创建 ${label}`, "ok");
+    if (msg.ok) { status(`后端已重新创建 ${label}`, "ok"); R.stale = false; }
     R.sendTo = label;
     renderAgents();
   }
@@ -1384,6 +1398,18 @@
     $("#btn-agent-new").addEventListener("click", () => newAgent($("#agent-label").value));
     $("#agent-label").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); newAgent(ev.target.value); } });
     $("#btn-cancel-all").addEventListener("click", () => recipe("停止所有流", "cancel"));
+    $("#btn-restart").addEventListener("click", async () => {
+      if (!confirm("重启后端会丢掉整个工作区（字典 + 栈 + agent），卡住的命令也就断了。继续？")) return;
+      try {
+        const msg = await api("/api/restart", {});
+        S.stack = []; S.frames = []; S.sel.clear(); S.activeFrame = null;
+        S.backendLen = 0; S.last = null; S.streams = [];
+        R.stale = R.agents.length > 0;      // 名字留着，但后端已经没它们了
+        renderStack(); renderFrames(); renderStreams(); renderResult(); renderAgents();
+        status(`后端已重启（第 ${msg.gen ?? "?"} 代）——栈清空、agent 要重建`, "ok");
+        await readState("读回状态");
+      } catch (e) { status(`重启失败：${e}`, "bad"); }
+    });
 
     $("#send-agent").addEventListener("change", (ev) => { R.sendTo = ev.target.value || null; renderAgents(); });
     $("#btn-send").addEventListener("click", () => send($("#send-text").value));

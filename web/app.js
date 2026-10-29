@@ -18,6 +18,14 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const uid = (() => { let n = 0; return () => `i${++n}`; })();
 
+  /** 状态文字会被 ellipsis 截断，所以把全文挂到 title 上（悬停可看全）。 */
+  function setState(sel, text) {
+    const el = $(sel);
+    if (!el) return;
+    el.textContent = text;
+    el.title = text;
+  }
+
   function h(tag, props, ...kids) {
     const node = document.createElement(tag);
     for (const [k, v] of Object.entries(props || {})) {
@@ -1073,10 +1081,10 @@
         h("span", { class: "pitem__name" }, m.name),
         h("span", { class: "pitem__meta" }, on ? "当前" : `${(m.tools || []).length} 工具`),
         m.desc ? h("span", { class: "pitem__desc" }, m.desc) : null,
-        (m.tools || []).length ? h("span", { class: "pitem__tools" }, "工具： " + m.tools.join(" ")) : null,
+        (m.tools || []).length ? h("span", { class: "pitem__tools", title: "工具： " + m.tools.join(" ") }, "工具： " + m.tools.join(" ")) : null,
       ));
     }
-    $("#state-mode").textContent = R.mode || "—";
+    setState("#state-mode", R.mode || "—");
     $("#chip-mode").textContent = `模式 ${R.mode || "—"}`;
   }
 
@@ -1121,9 +1129,9 @@
 
   function renderCfg() {
     const { provider, model, temperature } = R.cfg;
-    $("#state-config").textContent = provider
+    setState("#state-config", provider
       ? `${provider} · ${model ? unquote(model) : "—"} · t=${temperature ?? "—"}`
-      : "—";
+      : "—");
     renderPresets();
   }
 
@@ -1185,7 +1193,7 @@
         ),
       ));
     }
-    $("#state-agents").textContent = `${R.agents.length} 个`;
+    setState("#state-agents", `${R.agents.length} 个`);
     renderSend();
   }
 
@@ -1234,7 +1242,7 @@
     for (const label of R.agents) {
       sel.append(h("option", { value: label, selected: label === R.sendTo }, label));
     }
-    $("#state-send").textContent = R.sendTo ? `→ ${R.sendTo}` : "—";
+    setState("#state-send", R.sendTo ? `→ ${R.sendTo}` : "—");
   }
 
   async function send(text, { label = null, all = false } = {}) {

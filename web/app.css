@@ -122,6 +122,9 @@
 
 /* ── 骨架 ────────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
+/* `hidden` 必须赢过组件自己的 display：`.selection-bar`/`.result` 都设了 display:flex，
+   否则「已选 0」的假工具条和空结果卡片会一直挂在那儿（[hidden] 只是 UA 里的 display:none）。 */
+[hidden] { display: none !important; }
 
 html, body {
   height: 100%;
@@ -350,10 +353,15 @@ body { overflow: hidden; }
 
 /* ── 预置（模式 / 配置 / agent / 发送 / 日志）──────────────────────────── */
 .presets { overflow: auto; flex: 1; padding: 0 var(--space-2) var(--space-4); }
-.pgroup { padding: var(--space-2) var(--space-1) var(--space-3); border-bottom: 1px solid var(--line); display: grid; gap: var(--space-2); }
+/* minmax(0,1fr) + min-width:0：grid/flex 子项缺省 min-width:auto，长模型名会把整栏撑破，
+   溢出到 palette 边缘被裁掉（预设行的 provider 列曾只剩 `m…`/`nvi…`）。 */
+.pgroup { padding: var(--space-2) var(--space-1) var(--space-3); border-bottom: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); min-width: 0; }
 .pgroup:last-child { border-bottom: 0; }
-.pgroup__head { display: flex; align-items: baseline; gap: var(--space-2); }
+.pgroup__head { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+/* 标题不参与挤压：状态恒有 ellipsis 可以缩，标题被缩成两行就难看了（「配」「置」） */
 .pgroup__title {
+  flex: 0 0 auto;
+  white-space: nowrap;
   margin: 0;
   font: 600 var(--fs-xs) / 1.3 var(--font-mono);
   letter-spacing: .12em;
@@ -364,7 +372,8 @@ body { overflow: hidden; }
   margin-left: auto;
   font: var(--fs-xs) / 1.3 var(--font-mono);
   color: var(--accent);
-  max-width: 60%;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -372,16 +381,17 @@ body { overflow: hidden; }
 .pgroup__hint { margin: 0; color: var(--ink-3); font-size: var(--fs-xs); line-height: 1.5; }
 .pgroup__hint code { font: var(--fs-xs) / 1.4 var(--font-mono); color: var(--ink-2); }
 .pgroup__note { border-bottom: 1px dotted var(--ink-3); cursor: help; }
-.pgroup__body { display: grid; gap: 4px; }
-.pgroup__row { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+.pgroup__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; }
+.pgroup__row { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; min-width: 0; }
 .pgroup__row .input { flex: 1; min-width: 0; }
 .pgroup__chips { gap: 4px; }
 
 .pitem {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) max-content;
   gap: 0 var(--space-2);
   width: 100%;
+  min-width: 0;
   text-align: left;
   padding: 6px 8px;
   border: 1px solid var(--line);
@@ -394,10 +404,10 @@ body { overflow: hidden; }
 .pitem:hover { background: var(--paper-2); border-color: var(--line-strong); }
 .pitem:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 .pitem.is-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.pitem__name { font: 600 var(--fs-s) / 1.4 var(--font-mono); color: var(--accent); }
+.pitem__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 var(--fs-s) / 1.4 var(--font-mono); color: var(--accent); }
 .pitem.is-on .pitem__name { color: var(--accent); }
-.pitem__meta { font: var(--fs-xs) / 1.4 var(--font-mono); color: var(--ink-3); text-align: right; }
-.pitem__desc { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--ink-2); line-height: 1.45; }
+.pitem__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--fs-xs) / 1.4 var(--font-mono); color: var(--ink-3); text-align: right; }
+.pitem__desc { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-xs); color: var(--ink-2); line-height: 1.45; }
 .pitem__acts { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
 .pitem--static { cursor: default; }
 .pitem--static:hover { background: transparent; border-color: var(--line); }
@@ -490,9 +500,8 @@ body { overflow: hidden; }
 .stack-item__edit { width: 100%; font: var(--fs-s) / 1.45 var(--font-mono); background: var(--bg-2); color: var(--ink); border: 1px solid var(--accent); border-radius: var(--radius-s); padding: 4px 6px; resize: vertical; }
 .stack-insert { height: 2px; border-radius: 2px; background: var(--accent); margin: -1px 0; }
 
-.stack-rail { position: absolute; right: 4px; top: 12px; bottom: 12px; width: 16px; display: grid; place-items: start center; pointer-events: none; }
-.stack-rail__label { font: var(--fs-xs) / 1 var(--font-mono); color: var(--ink-3); writing-mode: vertical-rl; letter-spacing: .18em; }
-.stack-rail__line { width: 1px; flex: 1; background: linear-gradient(to bottom, var(--accent-2), transparent); opacity: .35; margin-top: 6px; }
+/* 原来这里有一条竖排「栈顶」导轨（writing-mode: vertical-rl）——空态下它孤零零悬在右侧，
+   「栈顶」信息已由顶部 hint + 每项的徽标说过两遍，故删。 */
 
 .selection-bar {
   display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;

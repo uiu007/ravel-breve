@@ -14,3 +14,6 @@ secrets/
 # python 缓存（web/gen-catalog.py 跑过就会生成）
 __pycache__/
 *.pyc
+
+# 用户截的界面图（不是仓库资产）
+web/*.png

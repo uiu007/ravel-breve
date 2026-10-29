@@ -622,12 +622,14 @@
       const realIndex = st.length - 1 - i;
       list.append(h("div", {
         class: "res-item", draggable: "true",
-        title: "拖到栈上 = 以文本复制这一项",
+        title: String(text).trim() === "()"
+          ? "空元组：这一步没有任何输出（常见于广播没匹配到 agent）"
+          : "拖到栈上 = 以文本复制这一项",
         ondragstart: (ev) => dragPayload(ev, { kind: "value", text }),
         onclick: () => { navigator.clipboard?.writeText(text); status("已复制到剪贴板", "ok"); },
       },
         h("span", { class: "res-item__text" }, text),
-        h("span", { class: "res-item__hint" }, i === 0 ? "栈顶" : "拖回"),
+        h("span", { class: "res-item__hint" }, String(text).trim() === "()" ? "空元组" : (i === 0 ? "栈顶" : "拖回")),
       ));
     });
     if (!rev.length) list.append(h("p", { class: "streams__empty" }, "后端栈是空的。"));
@@ -635,7 +637,16 @@
 
   async function run() {
     const src = S.manual ? $("#program").value : deriveSource();
-    if (!src.trim()) { status("没有可运行的源", "bad"); return; }
+    if (!src.trim()) {
+      // 后端栈是只读的：它有内容也不能直接运行，得先拖一项回本地栈。
+      const back = (S.last && S.last.stack) || [];
+      return status(
+        back.length
+          ? `本地栈是空的——后端栈只是只读回显，把其中一项拖回左边（或左栏点一个词）才有源可跑`
+          : "没有可运行的源：左栏点一个词、往上面的栈里压一个值，或者先「发送」一句",
+        "bad",
+      );
+    }
     const pending = S.frames.length;
     try {
       if ($("#clean").checked) {
@@ -1189,6 +1200,8 @@
         h("span", { class: "pitem__desc pitem__acts" },
           h("button", { class: "btn btn--tiny", onclick: () => { R.sendTo = label; renderAgents(); $("#send-text").focus(); } }, "发…"),
           h("button", { class: "btn btn--tiny btn--quiet", title: "给这个 agent 发一句「继续」", onclick: () => send("继续", { label }) }, "继续"),
+          // 名单是前端记的，后端可能早就没这个 agent 了（桥重启 / 工作区重置）。名字已在名单里时「新建」会拒收，所以给一条重建的路。
+          h("button", { class: "btn btn--tiny btn--quiet", title: "在后端重新创建这个标签的 agent（名单是前端记的，可能过期了）", onclick: () => recreateAgent(label) }, "重建"),
           h("button", { class: "btn btn--tiny btn--quiet", title: "前端不再记着它（后端那个还在）", onclick: () => forgetAgent(label) }, "忘掉"),
         ),
       ));
@@ -1207,11 +1220,21 @@
 
   const nextLabel = () => { let i = 1; while (R.agents.includes(`a${i}`)) i++; return `a${i}`; };
 
+  /** 名单是前端记的，后端可能过期：重发一次 agent 语句，把标签重新种回后端工作区。 */
+  async function recreateAgent(label) {
+    const { msg } = await recipe(`重建后端 agent ${label}`, `agent ${esc(label)} { }\npop`);
+    if (msg.ok) status(`后端已重新创建 ${label}`, "ok");
+    R.sendTo = label;
+    renderAgents();
+  }
+
   async function newAgent(label) {
     if (R.creating) return;               // 一笔没落完，不接第二笔
     const name = String(label || "").trim() || nextLabel();
     if (!/^[A-Za-z0-9_.\-]+$/.test(name)) return status("标签只能是字母/数字/下划线/点/横线", "bad");
-    if (R.agents.includes(name)) return status(`已经有个叫 ${name} 的 agent 了`, "bad");
+    if (R.agents.includes(name)) {
+      return status(`名单里已经有 ${name} 了——后端可能把它弄丢了（桥重启／重置过？），点它那一行的「重建」`, "bad");
+    }
     R.creating = true;
     $("#btn-agent-new").disabled = true;
     // 先占位：桥是串行的（一条慢请求会把后面的排队），连点两下不该建出两个 agent
@@ -1263,14 +1286,32 @@
       { keep: true },   // 回复留在后端栈上：可以拖回主栈 / 当成下一句的输入
     );
     if (!msg.ok) return;
-    if (out.length === 1 && out[0] === "()") {
-      status(`没有 agent 接住（后端可能没有「${label}」这个标签）——点上面的「新建」`, "bad");
+    // 没人接住时后端留下的是空元组：bcast 空域 → `()`，map 再跑一遍 → 又一个 `()`。
+    // 只要一项真回复都没有，就把这次留下的垃圾清掉（不能靠 out.length===1 判：
+    // 两个 `()` 时那个判断不成立，垃圾会静静堆在后端栈上，下一眼就成了「找不到源」的罪魁）。
+    const replies = out.filter((t) => String(t).trim() !== "()");
+    if (!replies.length) {
+      if (out.length) await popN(out.length);
+      status(
+        all
+          ? "没有 agent 接住广播——工作区里没有活 agent：新建一个，或对已有标签点「重建」"
+          : `没拿到「${label}」的回复——后端没有这个标签（桥重启／工作区重置过？）或这一轮回了空。点该 agent 行的「重建」，或「读回状态」`, 
+        "bad",
+      );
       return;
     }
+    if (replies.length !== out.length) await popN(out.length - replies.length);
     $("#send-text").value = "";
   }
 
   /* -- 日志 / 页签 ------------------------------------------------------ */
+  /** 全是空元组 = 没人接住（前端已把它们清掉，别让日志看起来像「栈里就是这些」）。 */
+  function logOut(e) {
+    if (!e.out.length) return "（无输出）";
+    const text = e.out.join("\n");
+    return e.out.every((t) => String(t).trim() === "()") ? `${text}\n（空元组：没有 agent 接住，已清掉）` : text;
+  }
+
   function renderLog() {
     const box = $("#preset-log");
     box.textContent = "";
@@ -1286,7 +1327,7 @@
         ),
         e.src ? h("pre", { class: "plog__src" }, e.src) : null,
         e.ok
-          ? h("pre", { class: "plog__out" }, e.out.length ? e.out.join("\n") : "（无输出）")
+          ? h("pre", { class: "plog__out" }, logOut(e))
           : h("pre", { class: "plog__out plog__out--bad" }, `code ${e.code ?? "?"}：${e.error}`),
       ));
     }

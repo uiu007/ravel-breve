@@ -291,6 +291,7 @@ M6 的内容按 v1.0d 收束为「agent 的基本能力」：REQ-47…REQ-51（�
 | M18 | 轮次纪律：能力层交收尾块（`finish`/`chars`/`calls`）、截断与空转在同一轮内续写（`RB_CONTINUE_MAX`）、`max-tokens` 缺省 512 → 8192、`default` 补最小系统提示（REQ-70 / D-76，v1.0q） | ✅ tag `m18` |
 | M19 | 输出预算：模型目录 + 上下文夹紧（`cap/llm-budget`）、收尾块补 `:out`/`:max`、`out >= max` = 额度用完 → 60、预设不再钉 `max-tokens`（REQ-71 / D-77，v1.0r） | ✅ tag `m19` |
 | M20 | 模型目录的兜底、估算与自动更新：目录外照抄 pi 的 `?? 128000` / `?? 16384`、`est` 两种算法取大者、新词 `catalog` / `catalog-refresh`、自动更新 = `@on`/`@off @Start` 的启停（REQ-72 / D-78，v1.0s） | ✅ tag `m20` |
+| M21 | 网页工作台（`web/`）：桥把 `--serve` 的 JSON 行翻成 HTTP + SSE；词表从规格附录 A 机械生成；栈项拖动改序 / 编辑 / 分割 / 复制、多选开帧、结果拖回 | ✅ tag `m21` |
 | M17 | 越界与审批：策略拒绝带请求表、`@Approve` 第 9 个事件、临时授权（`grant` / `grants` / `ungrant` + `accept` / `accept-dir` / `reject`）、`invoke` 不走审批（REQ-69 / D-75，v1.0p） | ✅ tag `m17` |
 
 > 里程碑之后的每一轮都保持三条不变量：**规格先行**（新 REQ 进新版 spec 文件，旧版不删改）、

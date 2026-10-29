@@ -1,0 +1,949 @@
+{
+ "version": "1.0s",
+ "spec": "ravel-breve-spec-v1.0s.md",
+ "generated_by": "web/gen-catalog.py",
+ "groups": [
+  {
+   "layer": "L0",
+   "title": "核心栈 / 组合子",
+   "words": [
+    {
+     "name": "dup",
+     "effect": "a -- a a",
+     "desc": "复制栈顶",
+     "arity": 1
+    },
+    {
+     "name": "pop",
+     "effect": "a --",
+     "desc": "丢弃栈顶",
+     "arity": 1
+    },
+    {
+     "name": "swap",
+     "effect": "a b -- b a",
+     "desc": "交换栈顶两项",
+     "arity": 2
+    },
+    {
+     "name": "rot",
+     "effect": "a b c -- b c a",
+     "desc": "三旋：最深的一项转到栈顶",
+     "arity": 3
+    },
+    {
+     "name": "-rot",
+     "effect": "a b c -- c a b",
+     "desc": "逆三旋：栈顶转到最深处",
+     "arity": 3
+    },
+    {
+     "name": "keep",
+     "effect": "a [q] -- a r",
+     "desc": "保留 a 再对 a 求 q，得 a 与结果",
+     "arity": 2
+    },
+    {
+     "name": "dip",
+     "effect": "a [q] -- r a",
+     "desc": "把 a 挪开，对下面求 q，再把 a 放回栈顶",
+     "arity": 2
+    },
+    {
+     "name": "apply",
+     "effect": "a [q] -- r",
+     "desc": "对 a 求 q（= 调用）",
+     "arity": 2
+    },
+    {
+     "name": "call",
+     "effect": "a [q] -- r",
+     "desc": "apply 的同义",
+     "arity": 2
+    }
+   ]
+  },
+  {
+   "layer": "L1",
+   "title": "序列、文本与连接（多态）",
+   "words": [
+    {
+     "name": ",",
+     "effect": "X Y -- XY",
+     "desc": "二元 / 三元连接（join）",
+     "arity": 2
+    },
+    {
+     "name": ",,",
+     "effect": "X Y Z -- XYZ",
+     "desc": "二元 / 三元连接（join）",
+     "arity": 3
+    },
+    {
+     "name": "len",
+     "effect": "seq -- n",
+     "desc": "长度",
+     "arity": 1
+    },
+    {
+     "name": "first",
+     "effect": "seq -- seq",
+     "desc": "＝ take 1 / take -1 糖",
+     "arity": 1
+    },
+    {
+     "name": "last",
+     "effect": "seq -- seq",
+     "desc": "＝ take 1 / take -1 糖",
+     "arity": 1
+    },
+    {
+     "name": "take",
+     "effect": "N seq -- seq",
+     "desc": "四象限（N∈Z）+ 多态",
+     "arity": 2
+    },
+    {
+     "name": "drop",
+     "effect": "N seq -- seq",
+     "desc": "四象限（N∈Z）+ 多态",
+     "arity": 2
+    },
+    {
+     "name": "map",
+     "effect": "[..] seq -- seq",
+     "desc": "组合子",
+     "arity": 2
+    },
+    {
+     "name": "filter",
+     "effect": "[..] seq -- seq",
+     "desc": "组合子",
+     "arity": 2
+    },
+    {
+     "name": "fold",
+     "effect": "[..] seq -- seq",
+     "desc": "组合子",
+     "arity": 2
+    },
+    {
+     "name": "split",
+     "effect": "String -- seq",
+     "desc": "拆分",
+     "arity": 1
+    },
+    {
+     "name": "at",
+     "effect": "n seq -- x",
+     "desc": "取第 n 个元素",
+     "arity": 2
+    },
+    {
+     "name": "nth",
+     "effect": "n seq -- x",
+     "desc": "取第 n 个元素",
+     "arity": 2
+    },
+    {
+     "name": "reverse",
+     "effect": "seq -- seq",
+     "desc": "反转 / 排序",
+     "arity": 1
+    },
+    {
+     "name": "sort",
+     "effect": "seq -- seq",
+     "desc": "反转 / 排序",
+     "arity": 1
+    },
+    {
+     "name": "zip",
+     "effect": "a b -- pairs",
+     "desc": "拉链",
+     "arity": 2
+    },
+    {
+     "name": "show",
+     "effect": "x --",
+     "desc": "打印（list 逐元素）",
+     "arity": 1
+    },
+    {
+     "name": "print",
+     "effect": "x --",
+     "desc": "打印（list 逐元素）",
+     "arity": 1
+    },
+    {
+     "name": "wait",
+     "effect": "",
+     "desc": "等待 / 重试 / 日志",
+     "arity": 0
+    },
+    {
+     "name": "sleep",
+     "effect": "",
+     "desc": "等待 / 重试 / 日志",
+     "arity": 0
+    },
+    {
+     "name": "retry",
+     "effect": "",
+     "desc": "等待 / 重试 / 日志",
+     "arity": 0
+    },
+    {
+     "name": "log",
+     "effect": "",
+     "desc": "等待 / 重试 / 日志",
+     "arity": 0
+    }
+   ]
+  },
+  {
+   "layer": "L1b",
+   "title": "布尔 / 比较 / 算术",
+   "words": [
+    {
+     "name": "=",
+     "effect": "a b -- Bool",
+     "desc": "相等",
+     "arity": 2
+    },
+    {
+     "name": "!=",
+     "effect": "a b -- Bool",
+     "desc": "不等",
+     "arity": 2
+    },
+    {
+     "name": "<",
+     "effect": "a b -- Bool",
+     "desc": "小于（`< 5 3` 读作 5 与 3）",
+     "arity": 2
+    },
+    {
+     "name": ">",
+     "effect": "a b -- Bool",
+     "desc": "大于",
+     "arity": 2
+    },
+    {
+     "name": "<=",
+     "effect": "a b -- Bool",
+     "desc": "小于等于",
+     "arity": 2
+    },
+    {
+     "name": ">=",
+     "effect": "a b -- Bool",
+     "desc": "大于等于",
+     "arity": 2
+    },
+    {
+     "name": "not",
+     "effect": "Bool -- Bool",
+     "desc": "取反",
+     "arity": 1
+    },
+    {
+     "name": "and",
+     "effect": "Bool Bool -- Bool",
+     "desc": "与",
+     "arity": 2
+    },
+    {
+     "name": "or",
+     "effect": "Bool Bool -- Bool",
+     "desc": "或",
+     "arity": 2
+    },
+    {
+     "name": "+",
+     "effect": "a b -- n",
+     "desc": "加",
+     "arity": 2
+    },
+    {
+     "name": "-",
+     "effect": "a b -- n",
+     "desc": "减",
+     "arity": 2
+    },
+    {
+     "name": "*",
+     "effect": "a b -- n",
+     "desc": "乘",
+     "arity": 2
+    },
+    {
+     "name": "/",
+     "effect": "a b -- n",
+     "desc": "除",
+     "arity": 2
+    },
+    {
+     "name": "mod",
+     "effect": "a b -- n",
+     "desc": "取余",
+     "arity": 2
+    },
+    {
+     "name": "abs",
+     "effect": "n -- n",
+     "desc": "绝对值",
+     "arity": 1
+    },
+    {
+     "name": "min",
+     "effect": "a b -- x",
+     "desc": "较小者",
+     "arity": 2
+    },
+    {
+     "name": "max",
+     "effect": "a b -- x",
+     "desc": "较大者",
+     "arity": 2
+    },
+    {
+     "name": "sum",
+     "effect": "seq -- n",
+     "desc": "求和",
+     "arity": 1
+    }
+   ]
+  },
+  {
+   "layer": "L1c",
+   "title": "字符串工具",
+   "words": [
+    {
+     "name": "trim",
+     "effect": "String -- String",
+     "desc": "去首尾空白",
+     "arity": 1
+    },
+    {
+     "name": "replace",
+     "effect": "From To String -- String",
+     "desc": "替换全部",
+     "arity": 3
+    },
+    {
+     "name": "contains",
+     "effect": "Sub String -- Bool",
+     "desc": "是否包含",
+     "arity": 2
+    },
+    {
+     "name": "starts-with",
+     "effect": "Prefix String -- Bool",
+     "desc": "前缀判断",
+     "arity": 2
+    },
+    {
+     "name": "ends-with",
+     "effect": "Suffix String -- Bool",
+     "desc": "后缀判断",
+     "arity": 2
+    },
+    {
+     "name": "lines",
+     "effect": "String -- seq",
+     "desc": "按行拆",
+     "arity": 1
+    },
+    {
+     "name": "words",
+     "effect": "String -- seq",
+     "desc": "按空白拆词",
+     "arity": 1
+    }
+   ]
+  },
+  {
+   "layer": "L1d",
+   "title": "类型转换",
+   "words": [
+    {
+     "name": "to-string",
+     "effect": "x -- String",
+     "desc": "转文本",
+     "arity": 1
+    },
+    {
+     "name": "to-int",
+     "effect": "x -- Int",
+     "desc": "转整数",
+     "arity": 1
+    }
+   ]
+  },
+  {
+   "layer": "L2",
+   "title": "消息与 JSON",
+   "words": [
+    {
+     "name": "say",
+     "effect": "String -- Utter",
+     "desc": "包裹成 session 的一部分 JSON（role = \"user\"）",
+     "arity": 1
+    },
+    {
+     "name": "saysys",
+     "effect": "String -- Utter",
+     "desc": "同上，但 role = \"system\"（REQ-47）",
+     "arity": 1
+    },
+    {
+     "name": "to-json",
+     "effect": "x -- String",
+     "desc": "序列化 / 反序列化（实现走能力层）",
+     "arity": 1
+    },
+    {
+     "name": "from-json",
+     "effect": "String -- Json",
+     "desc": "序列化 / 反序列化（实现走能力层）",
+     "arity": 1
+    },
+    {
+     "name": "Role",
+     "effect": "",
+     "desc": "字段访问（名词）",
+     "arity": 0
+    },
+    {
+     "name": "Content",
+     "effect": "",
+     "desc": "字段访问（名词）",
+     "arity": 0
+    },
+    {
+     "name": "llm",
+     "effect": "-- Table",
+     "desc": "provider 配置的活表（SF-32）",
+     "arity": 0
+    },
+    {
+     "name": "llm-get",
+     "effect": "Key -- Value",
+     "desc": "取生效值（工作区 > 环境变量 > 缺省）",
+     "arity": 1
+    },
+    {
+     "name": "llm-set",
+     "effect": "Value Key --",
+     "desc": "写一项；Value = nil 为删除；key 拒写（60）",
+     "arity": 2
+    },
+    {
+     "name": "llm-models",
+     "effect": "-- Seq",
+     "desc": "拉一次当前 provider 的模型名（REQ-59）",
+     "arity": 0
+    },
+    {
+     "name": "llm-auto",
+     "effect": "-- String",
+     "desc": "拉列表 → 按偏好选 → 写回 model（REQ-59）",
+     "arity": 0
+    },
+    {
+     "name": "llm-import",
+     "effect": "NameOrPath -- Table",
+     "desc": "导入预设（presets/<名字>.json 或路径）；只覆盖预设里出现的键（REQ-62）",
+     "arity": 1
+    },
+    {
+     "name": "llm-export",
+     "effect": "Path -- Int",
+     "desc": "把显式配置导成预设文件；密钥项 → 60（REQ-62）",
+     "arity": 1
+    },
+    {
+     "name": "catalog",
+     "effect": "-- Table",
+     "desc": "模型目录的副本（名字 → 窗口/额度；REQ-72）",
+     "arity": 0
+    },
+    {
+     "name": "catalog-refresh",
+     "effect": "-- Int",
+     "desc": "拉一次 /models，登记没见过的名字，压回新增条数（REQ-72）",
+     "arity": 0
+    }
+   ]
+  },
+  {
+   "layer": "L3",
+   "title": "会话与发送",
+   "words": [
+    {
+     "name": "send",
+     "effect": "Utter Agent -- Stream",
+     "desc": "发送（单目标）；目标作最右实参（SF-14）",
+     "arity": 2
+    },
+    {
+     "name": "bcast",
+     "effect": "Utter Domain -- list Stream",
+     "desc": "对匹配的未注销 agent 发送（缺省域 = 全部）",
+     "arity": 2
+    },
+    {
+     "name": "resend",
+     "effect": "Agent\\",
+     "desc": "Stream -- Stream",
+     "arity": 0
+    },
+    {
+     "name": "append",
+     "effect": "Utter Agent -- Agent",
+     "desc": "追加一条消息（目标最右，SF-14）",
+     "arity": 2
+    },
+    {
+     "name": "session",
+     "effect": "Agent -- Session",
+     "desc": "取该 agent 的会话（SF-27）",
+     "arity": 1
+    }
+   ]
+  },
+  {
+   "layer": "L4",
+   "title": "名字、agent 与编排图",
+   "words": [
+    {
+     "name": "agent",
+     "effect": "Label Session [ quot ] -- Agent",
+     "desc": "新开 agent（记内部血缘）",
+     "arity": 3
+    },
+    {
+     "name": "origin",
+     "effect": "Agent -- seq",
+     "desc": "显示来源（唯一来源动词）",
+     "arity": 1
+    },
+    {
+     "name": "watch",
+     "effect": "Agent -- Stream",
+     "desc": "语法糖：查询绑定 + show 对应 stream",
+     "arity": 1
+    },
+    {
+     "name": "unsubscribe",
+     "effect": "Agent -- Agent",
+     "desc": "取消订阅（移出缺省广播域）",
+     "arity": 1
+    },
+    {
+     "name": "subscribe",
+     "effect": "Agent -- Agent",
+     "desc": "恢复订阅（REQ-51；与 unsubscribe 互逆）",
+     "arity": 1
+    },
+    {
+     "name": "->",
+     "effect": "Agent Agent -- Agent",
+     "desc": "线性血缘边：给后者的 origin 记上前者（REQ-51）",
+     "arity": 2
+    },
+    {
+     "name": "onfail",
+     "effect": "Agent [ quot ] -- Agent",
+     "desc": "失败回退引号（REQ-51）",
+     "arity": 2
+    }
+   ]
+  },
+  {
+   "layer": "L5",
+   "title": "控制流",
+   "words": [
+    {
+     "name": "if",
+     "effect": "cond [then] [else] -- x",
+     "desc": "条件分支（也可用条件已在栈上的写法）",
+     "arity": 3
+    },
+    {
+     "name": "when",
+     "effect": "cond [then] -- x",
+     "desc": "条件为真时求引号",
+     "arity": 2
+    },
+    {
+     "name": "unless",
+     "effect": "cond [then] -- x",
+     "desc": "条件为假时求引号",
+     "arity": 2
+    },
+    {
+     "name": "loop",
+     "effect": "N [body] -- x",
+     "desc": "循环 N 次",
+     "arity": 2
+    },
+    {
+     "name": "while",
+     "effect": "[cond] [body] -- x",
+     "desc": "条件为真则循环",
+     "arity": 2
+    },
+    {
+     "name": "try",
+     "effect": "[body] [catch] -- x",
+     "desc": "异常处理",
+     "arity": 2
+    },
+    {
+     "name": "recover",
+     "effect": "[body] [handler] -- x",
+     "desc": "失败回退",
+     "arity": 2
+    }
+   ]
+  },
+  {
+   "layer": "L5b",
+   "title": "错误 / 调试 / 环境",
+   "words": [
+    {
+     "name": "fail",
+     "effect": "x --",
+     "desc": "抛出失败（退出码 60）",
+     "arity": 1
+    },
+    {
+     "name": "assert",
+     "effect": "Bool Msg --",
+     "desc": "断言，失败即 60",
+     "arity": 2
+    },
+    {
+     "name": "depth",
+     "effect": "-- Int",
+     "desc": "数据栈深度",
+     "arity": 0
+    },
+    {
+     "name": "dump",
+     "effect": "--",
+     "desc": "打印工作区概要",
+     "arity": 0
+    },
+    {
+     "name": "now",
+     "effect": "-- Int",
+     "desc": "当前时间（毫秒）",
+     "arity": 0
+    },
+    {
+     "name": "env",
+     "effect": "Key -- Value",
+     "desc": "读环境变量",
+     "arity": 1
+    }
+   ]
+  },
+  {
+   "layer": "L6",
+   "title": "元词表",
+   "words": [
+    {
+     "name": "doc",
+     "effect": "Name -- String",
+     "desc": "看一个词的文档",
+     "arity": 1
+    },
+    {
+     "name": "see",
+     "effect": "Name --",
+     "desc": "看一个词的实现",
+     "arity": 1
+    }
+   ]
+  },
+  {
+   "layer": "L7",
+   "title": "持久化与工作区",
+   "words": [
+    {
+     "name": "read",
+     "effect": "Path -- String",
+     "desc": "读 / 写文件（经能力层）",
+     "arity": 1
+    },
+    {
+     "name": "write",
+     "effect": "String Path --",
+     "desc": "读 / 写文件（经能力层）",
+     "arity": 2
+    },
+    {
+     "name": "save",
+     "effect": "Workspace Path --",
+     "desc": "保存 / 读取工作区",
+     "arity": 2
+    },
+    {
+     "name": "load",
+     "effect": "Path -- Workspace",
+     "desc": "保存 / 读取工作区",
+     "arity": 1
+    },
+    {
+     "name": "current",
+     "effect": "-- Workspace",
+     "desc": "取当前工作区",
+     "arity": 0
+    },
+    {
+     "name": "usage",
+     "effect": "-- Table",
+     "desc": "本工作区累计用量（拷贝，REQ-55）",
+     "arity": 0
+    },
+    {
+     "name": "compact",
+     "effect": "Workspace --",
+     "desc": "显式压缩日志进快照",
+     "arity": 1
+    }
+   ]
+  },
+  {
+   "layer": "L8",
+   "title": "钩子与 agent 必备",
+   "words": [
+    {
+     "name": "@on",
+     "effect": "Event [quot] --",
+     "desc": "注册钩子",
+     "arity": 2
+    },
+    {
+     "name": "@off",
+     "effect": "Event --",
+     "desc": "注销该事件上的钩子",
+     "arity": 1
+    },
+    {
+     "name": "@Start",
+     "effect": "",
+     "desc": "",
+     "arity": 0
+    },
+    {
+     "name": "@Chunk",
+     "effect": "",
+     "desc": "",
+     "arity": 0
+    },
+    {
+     "name": "@Fail",
+     "effect": "",
+     "desc": "",
+     "arity": 0
+    },
+    {
+     "name": "@Error",
+     "effect": "",
+     "desc": "",
+     "arity": 0
+    },
+    {
+     "name": "@Close",
+     "effect": "",
+     "desc": "",
+     "arity": 0
+    },
+    {
+     "name": "@Toolcall",
+     "effect": "",
+     "desc": "",
+     "arity": 0
+    },
+    {
+     "name": "@Done",
+     "effect": "",
+     "desc": "",
+     "arity": 0
+    },
+    {
+     "name": "@RoundDone",
+     "effect": "",
+     "desc": "",
+     "arity": 0
+    },
+    {
+     "name": "deftool",
+     "effect": "Name Desc [quot] --",
+     "desc": "登记一个工具",
+     "arity": 3
+    },
+    {
+     "name": "invoke",
+     "effect": "Name Json -- Json",
+     "desc": "直接调用工具（不经模型、不走审批）",
+     "arity": 2
+    },
+    {
+     "name": "stop",
+     "effect": "Stream --",
+     "desc": "停止该流",
+     "arity": 1
+    },
+    {
+     "name": "cancel",
+     "effect": "-- Int",
+     "desc": "停掉所有还开着的流",
+     "arity": 0
+    },
+    {
+     "name": "drain",
+     "effect": "--",
+     "desc": "把挂着的流跑完",
+     "arity": 0
+    },
+    {
+     "name": "next",
+     "effect": "--",
+     "desc": "推进一次事件循环",
+     "arity": 0
+    }
+   ]
+  },
+  {
+   "layer": "L9b",
+   "title": "插件（v1.0j / REQ-60）",
+   "words": [
+    {
+     "name": "plug",
+     "effect": "Path -- String",
+     "desc": "装一个 .breve 插件，返回插件名（= 文件名去扩展名）",
+     "arity": 1
+    },
+    {
+     "name": "plugins",
+     "effect": "-- Seq",
+     "desc": "已装插件名（升序）",
+     "arity": 0
+    },
+    {
+     "name": "unplug",
+     "effect": "Name -- Int",
+     "desc": "卸载并返回撤销项数（词 + 钩子 + 工具）；没装过 → 20",
+     "arity": 1
+    }
+   ]
+  },
+  {
+   "layer": "L10",
+   "title": "处理流程（模式）",
+   "words": [
+    {
+     "name": "mode",
+     "effect": "Name\\",
+     "desc": "Mode --",
+     "arity": 0
+    },
+    {
+     "name": "modes",
+     "effect": "-- list String",
+     "desc": "预制模式名（升序）",
+     "arity": 0
+    },
+    {
+     "name": "mode-of",
+     "effect": "-- Mode",
+     "desc": "导出当前工作区的处理流程（与 mode 互逆）",
+     "arity": 0
+    },
+    {
+     "name": "mode-name",
+     "effect": "Mode -- String",
+     "desc": "模式名（名词，只读）",
+     "arity": 1
+    },
+    {
+     "name": "mode-prompt",
+     "effect": "Mode -- String\\",
+     "desc": "nil",
+     "arity": 1
+    },
+    {
+     "name": "mode-tools",
+     "effect": "Mode -- list String",
+     "desc": "模式声明的工具名（升序）",
+     "arity": 1
+    },
+    {
+     "name": "flag",
+     "effect": "Key -- Bool",
+     "desc": "读历史标记开关（未定义 → nil）",
+     "arity": 1
+    },
+    {
+     "name": "flag-set",
+     "effect": "Value Key --",
+     "desc": "写开关；非布尔 → 31；nil = 删除",
+     "arity": 2
+    },
+    {
+     "name": "enter-plan",
+     "effect": "-- →",
+     "desc": "进 plan 模式：打开 plan 开关 + 登记 exit_plan_mode（REQ-66）",
+     "arity": 0
+    },
+    {
+     "name": "exit-plan",
+     "effect": "-- →",
+     "desc": "手动退出 plan 模式（同 dsh 的 /plan off）",
+     "arity": 0
+    },
+    {
+     "name": "grant",
+     "effect": "Kind Key --",
+     "desc": "登记临时授权（v1.0p；缺省到本工作区结束）",
+     "arity": 2
+    },
+    {
+     "name": "grants",
+     "effect": "-- list Grant",
+     "desc": "当前授权（kind / key / 可选 uses）",
+     "arity": 0
+    },
+    {
+     "name": "ungrant",
+     "effect": "-- n",
+     "desc": "撤销全部授权，返回条数",
+     "arity": 0
+    },
+    {
+     "name": "accept",
+     "effect": "Request --",
+     "desc": "裁决词：允许这一次（写在 @Approve 钩子里）",
+     "arity": 1
+    },
+    {
+     "name": "accept-dir",
+     "effect": "Request --",
+     "desc": "裁决词：允许这个目录（到本工作区结束）",
+     "arity": 1
+    },
+    {
+     "name": "reject",
+     "effect": "Request --",
+     "desc": "裁决词：拒绝",
+     "arity": 1
+    }
+   ]
+  }
+ ]
+}

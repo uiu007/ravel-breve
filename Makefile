@@ -13,7 +13,7 @@ BIN        := bin
 RB_MANIFEST := rb/MANIFEST
 RB_SRCS     := $(shell grep -v '^\s*#' $(RB_MANIFEST) | grep -v '^\s*$$')
 
-.PHONY: all test test-unit test-e2e test-agent test-oc test-core-only test-examples clean check-vendor bundle core-only
+.PHONY: all test test-unit test-e2e test-agent test-oc test-core-only test-examples clean check-vendor bundle core-only web web-mock web-catalog
 
 all: $(BIN)/ravel
 
@@ -68,6 +68,18 @@ test-oc: $(BIN)/ravel
 # 附录 D 验收：剔除 cap/ 后核心仍可独立装载并完成主脊
 test-core-only: core-only
 	$(BUILD)/janet tools/core-only-check.janet $(CORE)/rb-bundle.janet
+
+# 网页前端（web/）：桥把 `ravel --serve` 的 JSON 行翻成 HTTP + SSE（需要 Python 3.9+）
+web: $(BIN)/ravel
+	python3 web/bridge.py
+
+# 同上，但强制离线 provider（RB_LLM=mock）
+web-mock: $(BIN)/ravel
+	python3 web/bridge.py --mock
+
+# 从规格附录 A 重新机械生成词表（只有词表改了才需要跑）
+web-catalog:
+	python3 web/gen-catalog.py
 
 check-vendor:
 	@cd $(JANET_DIR) && for f in janet.c janet.h shell.c; do \

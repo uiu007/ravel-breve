@@ -317,6 +317,22 @@ $ printf '%s\n' '{"type":"ping"}' 'agent "c" { }' '{"type":"eval","src":"+ 1 2",
 - 前端订阅：`watch`（L9）给出 agent 会话的**只读视图流**——先回放历史，再随 `append` 吐新增条目，
   每次请求处理完后推送（每次至多 64 块）。视图流不进本轮列表，因此不会被收尾钩子并回会话（D-42）。
 
+## 网页工作台（`web/`，原型）
+
+把「栈」摆出来看的前端：左边词表、中间栈、右边函数帧，拖来拖去就把程序拼出来（**不用记词名**）。
+它同样遵守「前端不解析、不求值」——`app.js` 只拼字符串，`result.stack` 原样显示。
+
+```sh
+make all && make web-mock        # 离线；页面 http://127.0.0.1:8787/
+```
+
+- 栈项可拖动改序；右侧 `✎` 编辑、`✂` 分割、`⧉` 复制；
+- 多选（`Shift`/`⌘`）后点一个词 = **用这些项开一帧**；参数按书写序排列；
+- 帧的 `⟵ 返回` 把结果压回栈并关帧（也可以把某一项结果直接拖回栈）；
+- 三套皮肤 `dusk` / `paper` / `neon`，全在 `app.css` 的令牌里，加一套是复制一段 `[data-theme]`。
+
+细节与桥的接口见 `web/README.md`。
+
 ## 目录
 
 ```
@@ -329,6 +345,7 @@ tests/            unit / conformance / e2e（+ 附录 D 的 core-only 验收）
 examples/         使用手册里的可跑例程（mock，hermetic；run-all.sh 一次跑完）
 plugins/          面向用户的功能插件（`.breve`）
 skills/           插件编写 skills（SKILL.md + 可跑样板；不进 bundle）
+web/              网页工作台原型（纯标准库桥 + 无框架前端；见 web/README.md）
 docs/             符合性矩阵、决策记录、协议草案、规格反馈
 ```
 

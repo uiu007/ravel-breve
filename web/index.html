@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dusk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ravel breve · 栈工作台</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="art" aria-hidden="true">
+  <div class="art__orb art__orb--a"></div>
+  <div class="art__orb art__orb--b"></div>
+  <div class="art__grid"></div>
+</div>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true">◤</span>
+      <span class="brand__name">ravel breve</span>
+      <span class="brand__sub">栈工作台</span>
+    </div>
+    <div class="topbar__meta">
+      <span class="chip" id="chip-conn" data-state="wait">连接中…</span>
+      <span class="chip chip--ghost" id="chip-version">—</span>
+      <span class="chip chip--ghost" id="chip-count">0 词</span>
+    </div>
+    <div class="topbar__actions">
+      <button class="btn btn--quiet" id="btn-cancel" title="停掉还开着的流（不清工作区）">停止流</button>
+      <button class="btn btn--quiet btn--danger" id="btn-reset" title="丢弃整个工作区（字典 + 栈 + agent）">重置</button>
+      <button class="btn btn--quiet" id="btn-theme" title="切换主题（美术钩子示例）">主题</button>
+      <button class="btn btn--quiet" id="btn-palette-toggle" title="收起/展开命令面板">命令</button>
+    </div>
+  </header>
+
+  <main class="stage">
+
+    <!-- ── 命令面板 ───────────────────────────────────────────── -->
+    <aside class="panel palette" id="palette">
+      <div class="panel__head">
+        <h2 class="panel__title">命令</h2>
+        <span class="panel__hint">点 = 开帧 / 拖 = 入栈</span>
+      </div>
+      <div class="palette__filters">
+        <input id="search" class="input" type="search" placeholder="搜词 / 栈效应…" autocomplete="off" spellcheck="false">
+        <div class="chips" id="layers"></div>
+      </div>
+      <div class="palette__list" id="wordlist"></div>
+      <div class="palette__foot">
+        <span class="kbd">⏎</span> 选中 N 项后点词 → 直接成帧
+      </div>
+    </aside>
+
+    <!-- ── 栈 + 运行 ──────────────────────────────────────────── -->
+    <section class="panel bench">
+      <div class="panel__head">
+        <h2 class="panel__title">栈 <span class="muted" id="stack-depth">0</span></h2>
+        <div class="panel__tools">
+          <span class="panel__hint">栈顶在上 · 拖动可改序</span>
+        </div>
+      </div>
+
+      <div class="literal-bar">
+        <input id="new-literal" class="input input--mono" placeholder="新项：12 · &quot;你好&quot; · { 1 2 } · [ * 2 ]" autocomplete="off" spellcheck="false">
+        <button class="btn btn--accent" id="btn-add" title="压入一项（Enter）">压入</button>
+      </div>
+
+      <div class="stack-shell">
+        <div class="stack-drop" id="stack" data-drop="stack">
+          <div class="stack-empty" id="stack-empty">
+            <p class="stack-empty__t">栈是空的</p>
+            <p class="stack-empty__d">上面压入字面量，或把左边的词拖到这儿开一帧。</p>
+          </div>
+        </div>
+        <div class="stack-rail" id="stack-rail" aria-hidden="true">
+          <span class="stack-rail__label">栈顶</span>
+          <div class="stack-rail__line"></div>
+        </div>
+      </div>
+
+      <div class="selection-bar" id="selection-bar" hidden>
+        <span class="selection-bar__count" id="sel-count">已选 0</span>
+        <button class="btn btn--tiny" data-sel="frame" title="用选中的项开一帧（再点一个词）">开帧…</button>
+        <button class="btn btn--tiny" data-sel="quote" title="把选中的项包成一个引号块 [ … ]">包成引号</button>
+        <button class="btn btn--tiny" data-sel="dup" title="复制选中（Ctrl+D）">复制</button>
+        <button class="btn btn--tiny btn--danger" data-sel="drop" title="删除选中（Del）">删除</button>
+        <button class="btn btn--tiny btn--quiet" data-sel="none">取消</button>
+      </div>
+
+      <div class="run">
+        <div class="run__head">
+          <h3 class="run__title">程序</h3>
+          <div class="run__tools">
+            <label class="toggle" title="手改过就不再用栈推导">
+              <input type="checkbox" id="manual">
+              <span>手改</span>
+            </label>
+            <label class="toggle" title="运行前重置工作区（后端栈是 REPL 语义，会跨次累积）">
+              <input type="checkbox" id="clean">
+              <span>干净栈</span>
+            </label>
+            <button class="btn btn--tiny" id="btn-sync" title="从栈重新推导源">↻ 同步</button>
+            <button class="btn btn--accent" id="btn-run" title="运行（Ctrl/⌘+Enter）">▶ 运行</button>
+          </div>
+        </div>
+        <textarea id="program" class="program" rows="4" spellcheck="false"
+          placeholder="这里是从栈推导出的方言源（一行一个语句）"></textarea>
+        <div class="result" id="result" hidden>
+          <div class="result__head">
+            <span class="result__title">后端栈</span>
+            <span class="result__meta" id="result-meta"></span>
+            <button class="btn btn--tiny btn--quiet" id="btn-raw">原始 JSON</button>
+          </div>
+          <div class="result__list" id="result-list"></div>
+          <pre class="result__raw" id="result-raw" hidden></pre>
+          <p class="result__err" id="result-err" hidden></p>
+        </div>
+      </div>
+
+      <div class="streams" id="streams">
+        <div class="streams__head">
+          <h3 class="run__title">流 / 事件</h3>
+          <button class="btn btn--tiny btn--quiet" id="btn-clear-streams">清空</button>
+        </div>
+        <div class="streams__body" id="streams-body">
+          <p class="streams__empty">这里显示 `chunk` / `event` / `close` 与诊断输出（stderr）。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 函数帧 ─────────────────────────────────────────────── -->
+    <aside class="panel frames" id="frames" data-drop="frames">
+      <div class="panel__head">
+        <h2 class="panel__title">函数栈 <span class="muted" id="frame-count">0</span></h2>
+        <span class="panel__hint">选中项 → 点词 / 拖进来</span>
+      </div>
+      <div class="frames__list" id="frames-list">
+        <div class="frames__empty" id="frames-empty">
+          <p>把栈项拖到一个<strong>词</strong>上，就开一帧。</p>
+          <p class="muted">帧里的参数按「书写序」排列；<br>算完可以 <em>返回</em> 或把结果<em>拖回</em>栈。</p>
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <footer class="statusbar">
+    <span id="status">就绪</span>
+    <span class="statusbar__right">
+      <span class="kbd">Shift</span>/<span class="kbd">⌘</span> 多选 · <span class="kbd">Del</span> 删 · <span class="kbd">⌘/Ctrl+↵</span> 运行
+    </span>
+  </footer>
+</div>
+
+<script src="app.js" defer></script>
+</body>
+</html>
